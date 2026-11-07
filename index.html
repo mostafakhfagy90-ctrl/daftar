@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>دفتر</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1b6b34">
+  <link rel="stylesheet" href="style.css">
+  <!-- مكتبات تصدير الإكسيل والـ PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body>
+
+  <div class="top">
+    <h1>دفتر</h1>
+    <div class="export-btns">
+      <button id="btn-export-excel" class="icon-btn">إكسيل 📊</button>
+      <button id="btn-export-pdf" class="icon-btn">PDF 📄</button>
+      <button id="btn-backup" class="icon-btn">نسخة احتياطية 💾</button>
+      <button id="btn-import" class="icon-btn">استعادة 📥</button>
+      <input type="file" id="file-import" accept=".json" style="display: none;">
+    </div>
+  </div>
+
+  <div id="backup-status" class="backup-status"></div>
+
+  <div class="tabs">
+    <button id="tab-in" class="tab active">الداخل</button>
+    <button id="tab-out" class="tab">الخارج</button>
+  </div>
+
+  <div class="search-box">
+    <input type="text" id="search" placeholder="ابحث بالاسم..." autocomplete="off">
+  </div>
+
+  <div class="table-wrap" id="pdf-area">
+    <table id="ledger">
+      <thead></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <div class="total-bar">
+    <span id="total-label">إجمالي الداخل</span>
+    <strong id="total-value">0 جنيه</strong>
+  </div>
+
+  <div class="actions">
+    <button id="btn-add" class="main-btn">عملية جديدة</button>
+    <button id="btn-mic" class="mic-btn" title="تسجيل صوتي">🎙️</button>
+  </div>
+
+  <dialog id="add-dialog">
+    <form id="add-form">
+      <h2 id="dialog-title">عملية جديدة</h2>
+      <p id="heard-text" hidden></p>
+      
+      <label for="f-name">الاسم</label>
+      <input id="f-name" list="names-list" autocomplete="off" required>
+      <datalist id="names-list"></datalist>
+
+      <label for="f-amount">المبلغ</label>
+      <input id="f-amount" type="number" inputmode="decimal" step="any" min="0.01" required>
+
+      <div class="dialog-btns">
+        <button type="button" id="btn-cancel" class="icon-btn">إلغاء</button>
+        <button type="submit" class="main-btn">حفظ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="edit-dialog">
+    <form id="edit-form">
+      <h2>تعديل عملية</h2>
+      <p id="edit-name"></p>
+
+      <label for="edit-amount">المبلغ</label>
+      <input id="edit-amount" type="number" inputmode="decimal" step="any" min="0.01" required>
+
+      <div class="dialog-btns">
+        <button type="button" id="edit-cancel" class="icon-btn">إلغاء</button>
+        <button type="button" id="edit-delete" class="icon-btn danger">حذف</button>
+        <button type="submit" class="main-btn">حفظ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="name-dialog">
+    <form id="name-form">
+      <h2>تعديل الاسم</h2>
+
+      <label for="name-edit-input">الاسم</label>
+      <input id="name-edit-input" autocomplete="off" required>
+
+      <div class="dialog-btns">
+        <button type="button" id="name-cancel" class="icon-btn">إلغاء</button>
+        <button type="button" id="name-delete" class="icon-btn danger">حذف الاسم</button>
+        <button type="submit" class="main-btn">حفظ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

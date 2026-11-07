@@ -1,0 +1,232 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: Tahoma, Arial, sans-serif;
+  background: #f5f5f5;
+  color: #222;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: #fff;
+}
+
+.top h1 {
+  font-size: 20px;
+}
+
+.icon-btn {
+  border: 1px solid #ccc;
+  background: #fff;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.tabs {
+  display: flex;
+  margin: 10px 14px 0;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.tab {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  background: #fff;
+  font-size: 16px;
+}
+
+.tab.active {
+  background: #dff3e4;
+  color: #1b6b34;
+  font-weight: bold;
+}
+
+.search-box {
+  margin: 10px 14px 0;
+}
+
+.search-box input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 15px;
+}
+
+.table-wrap {
+  flex: 1;
+  margin: 10px 14px 0;
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  white-space: nowrap;
+}
+
+th, td {
+  padding: 10px 12px;
+  text-align: center;
+  border-bottom: 1px solid #eee;
+}
+
+th {
+  background: #fafafa;
+  font-size: 13px;
+  color: #666;
+}
+
+th:first-child, td:first-child {
+  position: sticky;
+  right: 0;
+  background: #fff;
+  text-align: right;
+  font-weight: bold;
+}
+
+.total-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 10px 14px 0;
+  padding: 12px 14px;
+  background: #dff3e4;
+  color: #1b6b34;
+  border-radius: 8px;
+}
+
+.total-bar strong {
+  font-size: 20px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px 14px;
+}
+
+.main-btn {
+  flex: 1;
+  padding: 14px;
+  border: none;
+  border-radius: 10px;
+  background: #1b6b34;
+  color: #fff;
+  font-size: 16px;
+}
+
+.mic-btn {
+  width: 56px;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 22px;
+}
+body.out .tab.active {
+  background: #fbe3e1;
+  color: #a32d2d;
+}
+
+body.out .total-bar {
+  background: #fbe3e1;
+  color: #a32d2d;
+}
+
+dialog {
+  border: none;
+  border-radius: 12px;
+  padding: 18px;
+  width: 90%;
+  max-width: 360px;
+  margin: auto;
+}
+
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+dialog h2 {
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+
+dialog label {
+  display: block;
+  margin: 10px 0 4px;
+  font-size: 14px;
+  color: #555;
+}
+
+dialog input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 16px;
+}
+
+.dialog-btns {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.dialog-btns .icon-btn {
+  padding: 12px 16px;
+}
+
+td.op {
+  cursor: pointer;
+}
+
+td.op:active {
+  background: #eef6ef;
+}
+
+#edit-name {
+  color: #555;
+  font-size: 14px;
+}
+
+.danger {
+  color: #a32d2d;
+  border-color: #e0a9a7;
+}
+
+#heard-text {
+  background: #f2f2f2;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #555;
+  margin-bottom: 6px;
+}
+
+.backup-status {
+  font-size: 12px;
+  color: #777;
+  padding: 4px 14px 0;
+}
+
+td.person {
+  cursor: pointer;
+}
