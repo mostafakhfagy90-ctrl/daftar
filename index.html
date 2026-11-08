@@ -29,6 +29,8 @@
   <div class="tabs">
     <button id="tab-in" class="tab active">الداخل</button>
     <button id="tab-out" class="tab">الخارج</button>
+    <button id="tab-cash" class="tab">الكاش</button>
+    <button id="tab-closing" class="tab">التقفيل</button>
   </div>
 
   <div class="search-box">
@@ -42,9 +44,45 @@
     </table>
   </div>
 
-  <div class="total-bar">
+  <div class="total-bar" id="ledger-total">
     <span id="total-label">إجمالي الداخل</span>
     <strong id="total-value">0 جنيه</strong>
+  </div>
+
+  <div id="cash-view" class="section-view" hidden>
+    <div class="table-wrap">
+      <table id="cash-table">
+        <thead>
+          <tr><th>الخط 1</th><th>الكاش 1</th><th>الخط 2</th><th>الكاش 2</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="total-bar">
+      <span>إجمالي الكاش</span>
+      <strong id="cash-total">0 جنيه</strong>
+    </div>
+  </div>
+
+  <div id="closing-view" class="section-view" hidden>
+    <div class="closing-card">
+      <label for="c-treasury">الخزنة</label>
+      <input id="c-treasury" type="number" inputmode="decimal" step="any" placeholder="0">
+
+      <div class="closing-row"><span>الكاش</span><strong id="c-cash">0</strong></div>
+      <div class="closing-row"><span>الخارج</span><strong id="c-out">0</strong></div>
+
+      <label for="c-balance">الرصيد</label>
+      <input id="c-balance" type="number" inputmode="decimal" step="any" placeholder="0">
+
+      <div class="closing-row sum"><span>المجموع</span><strong id="c-sum">0</strong></div>
+      <div class="closing-row"><span>إجمالي الداخل</span><strong id="c-in">0</strong></div>
+
+      <div id="c-diff-box" class="closing-diff even">
+        <span id="c-diff-label">متطابق</span>
+        <strong id="c-diff">0 جنيه</strong>
+      </div>
+    </div>
   </div>
 
   <div class="actions">
@@ -97,6 +135,36 @@
       <div class="dialog-btns">
         <button type="button" id="name-cancel" class="icon-btn">إلغاء</button>
         <button type="button" id="name-delete" class="icon-btn danger">حذف الاسم</button>
+        <button type="submit" class="main-btn">حفظ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="cash-dialog">
+    <form id="cash-form">
+      <h2 id="cash-dlg-title">كاش</h2>
+
+      <label for="cash-input">المبلغ</label>
+      <input id="cash-input" type="number" inputmode="decimal" step="any">
+
+      <div class="dialog-btns">
+        <button type="button" id="cash-cancel" class="icon-btn">إلغاء</button>
+        <button type="button" id="cash-clear" class="icon-btn danger">مسح</button>
+        <button type="submit" class="main-btn">حفظ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="cash-name-dialog">
+    <form id="cash-name-form">
+      <h2 id="cash-name-title">خط جديد</h2>
+
+      <label for="cash-name-input">اسم الخط</label>
+      <input id="cash-name-input" autocomplete="off">
+
+      <div class="dialog-btns">
+        <button type="button" id="cash-name-cancel" class="icon-btn">إلغاء</button>
+        <button type="button" id="cash-name-delete" class="icon-btn danger">حذف الخط</button>
         <button type="submit" class="main-btn">حفظ</button>
       </div>
     </form>

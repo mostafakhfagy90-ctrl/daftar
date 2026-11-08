@@ -1,4 +1,4 @@
-const CACHE = "daftar-v7";
+const CACHE = "daftar-v9";
 const FILES = [
   "./",
   "index.html",

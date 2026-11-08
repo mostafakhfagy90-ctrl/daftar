@@ -1,14 +1,26 @@
 let currentBook = "in";
 const data = { in: [], out: [] };
 let db;
+let currentView = "in";
+let cashRows = [];
+let closing = { key: "closing", treasury: 0, balance: 0 };
+let restoring = false;
+const DEFAULT_CASH_ROWS = ["اخضر", "لبني", "هواوي", "S", "O", "R", "D", "ابوصغير", "ابوامر", "احمر", "K", "F.V/K.V", "", ""];
 
 function openDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open("daftar-db", 2);
+    const req = indexedDB.open("daftar-db", 3);
     req.onupgradeneeded = (e) => {
       const database = e.target.result;
       if (!database.objectStoreNames.contains("people")) {
         database.createObjectStore("people", { keyPath: "id", autoIncrement: true });
+      }
+      if (!database.objectStoreNames.contains("cash")) {
+        const cs = database.createObjectStore("cash", { keyPath: "id", autoIncrement: true });
+        DEFAULT_CASH_ROWS.forEach((name, i) => cs.add({ name: name, c1: null, c2: null, order: i }));
+      }
+      if (!database.objectStoreNames.contains("settings")) {
+        database.createObjectStore("settings", { keyPath: "key" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -109,11 +121,7 @@ function render() {
 }
 
 function switchBook(name) {
-  currentBook = name;
-  document.body.classList.toggle("out", name === "out");
-  tabIn.classList.toggle("active", name === "in");
-  tabOut.classList.toggle("active", name === "out");
-  render();
+  showView(name);
 }
 
 async function addOperation(name, amount) {
@@ -225,64 +233,150 @@ function getDateString() {
   return `${year}-${month}-${day}`;
 }
 
-document.getElementById("btn-export-excel").addEventListener("click", () => {
-  const wb = XLSX.utils.book_new();
+// ===== التصدير: نسخة من كل تاب لوحدها (إكسيل / PDF) =====
+const VIEW_TITLES = { in: "الداخل", out: "الخارج", cash: "الكاش", closing: "التقفيل" };
 
-  for (const bookKey of ["in", "out"]) {
-    const book = data[bookKey];
-    const title = bookKey === "in" ? "الداخل" : "الخارج";
-    
-    if (book.length === 0) {
-      const ws = XLSX.utils.aoa_to_sheet([["الدفتر فارغ"]]);
-      XLSX.utils.book_append_sheet(wb, ws, title);
-      continue;
-    }
+function closingFigures() {
+  const cash = cashTotal();
+  const out = ledgerTotal("out");
+  const inn = ledgerTotal("in");
+  const total4 = round2(closing.treasury + cash + out + closing.balance);
+  const diff = round2(total4 - inn);
+  return { cash: cash, out: out, inn: inn, total4: total4, diff: diff };
+}
 
+function diffLabel(diff) {
+  return diff > 0 ? "زيادة" : (diff < 0 ? "عجز" : "متطابق");
+}
+
+function viewSheetData(view) {
+  const rows = [];
+  const title = VIEW_TITLES[view];
+  if (view === "in" || view === "out") {
+    const book = data[view].filter(p => p.ops.length > 0);
     const maxOps = Math.max(1, ...book.map(p => p.ops.length));
-    const sheetData = [];
-    
-    const headers = ["الاسم"];
-    for (let i = 0; i < maxOps; i++) headers.push("عملية " + (i + 1));
-    headers.push("المجموع");
-    sheetData.push(headers);
-    
-    let bookGrandTotal = 0;
-    book.forEach(p => {
-      const row = [p.name];
-      for (let i = 0; i < maxOps; i++) {
-        row.push(p.ops[i] !== undefined ? p.ops[i] : "");
-      }
-      const personTotal = sum(p.ops);
-      row.push(personTotal);
-      bookGrandTotal += personTotal;
-      sheetData.push(row);
-    });
-
-    sheetData.push([]);
-    const totalRow = ["الإجمالي الكلي للدفتر"];
-    for (let i = 0; i < maxOps; i++) totalRow.push("");
-    totalRow.push(bookGrandTotal);
-    sheetData.push(totalRow);
-
-    const ws = XLSX.utils.aoa_to_sheet(sheetData);
-    XLSX.utils.book_append_sheet(wb, ws, title);
+    const head = ["الاسم"];
+    for (let i = 0; i < maxOps; i++) head.push("عملية " + (i + 1));
+    head.push("المجموع");
+    rows.push(head);
+    for (const p of book) {
+      const r = [p.name];
+      for (let i = 0; i < maxOps; i++) r.push(p.ops[i] !== undefined ? p.ops[i] : "");
+      r.push(sum(p.ops));
+      rows.push(r);
+    }
+    rows.push([]);
+    const t = ["إجمالي " + title];
+    for (let i = 0; i < maxOps; i++) t.push("");
+    t.push(ledgerTotal(view));
+    rows.push(t);
+  } else if (view === "cash") {
+    rows.push(["الخط 1", "الكاش 1", "الخط 2", "الكاش 2"]);
+    for (const r of cashRows) {
+      rows.push([r.name, typeof r.c1 === "number" ? r.c1 : "", r.name, typeof r.c2 === "number" ? r.c2 : ""]);
+    }
+    rows.push([]);
+    rows.push(["إجمالي الكاش 1", round2(cashRows.reduce((t, r) => t + cashNum(r.c1), 0))]);
+    rows.push(["إجمالي الكاش 2", round2(cashRows.reduce((t, r) => t + cashNum(r.c2), 0))]);
+    rows.push(["إجمالي الكاش", cashTotal()]);
+  } else {
+    const f = closingFigures();
+    rows.push(["البند", "القيمة"]);
+    rows.push(["الخزنة", closing.treasury]);
+    rows.push(["الكاش", f.cash]);
+    rows.push(["الخارج", f.out]);
+    rows.push(["الرصيد", closing.balance]);
+    rows.push(["المجموع", f.total4]);
+    rows.push(["إجمالي الداخل", f.inn]);
+    rows.push([diffLabel(f.diff), Math.abs(f.diff)]);
   }
-  
-  const fileName = `دفتر_حسابات_${getDateString()}.xlsx`;
-  XLSX.writeFile(wb, fileName);
+  return rows;
+}
+
+function reportHtml(view) {
+  const title = VIEW_TITLES[view];
+  const TH = 'style="border:1px solid #999;padding:8px 10px;background:#eee;text-align:center;font-size:15px;"';
+  const TD = 'style="border:1px solid #999;padding:8px 10px;text-align:center;font-size:15px;"';
+  const TDB = 'style="border:1px solid #999;padding:8px 10px;text-align:center;font-size:16px;font-weight:bold;background:#f6f6f6;"';
+  const cell = (v, st) => "<td " + (st || TD) + ">" + (typeof v === "number" ? money(v) : esc(String(v))) + "</td>";
+  let body = "";
+
+  if (view === "in" || view === "out") {
+    const book = data[view].filter(p => p.ops.length > 0);
+    const maxOps = Math.max(1, ...book.map(p => p.ops.length));
+    let head = "<tr><th " + TH + ">الاسم</th>";
+    for (let i = 0; i < maxOps; i++) head += "<th " + TH + ">عملية " + (i + 1) + "</th>";
+    head += "<th " + TH + ">المجموع</th></tr>";
+    let rows = "";
+    for (const p of book) {
+      rows += "<tr>" + cell(p.name, TDB);
+      for (let i = 0; i < maxOps; i++) rows += cell(p.ops[i] !== undefined ? p.ops[i] : "—");
+      rows += cell(sum(p.ops), TDB) + "</tr>";
+    }
+    if (!book.length) rows = '<tr><td ' + TD + ' colspan="' + (maxOps + 2) + '">لا توجد عمليات</td></tr>';
+    const foot = '<tr><td ' + TDB + ' colspan="' + (maxOps + 1) + '">إجمالي ' + title + "</td>" + cell(ledgerTotal(view), TDB) + "</tr>";
+    body = '<table style="border-collapse:collapse;width:100%;">' + head + rows + foot + "</table>";
+  } else if (view === "cash") {
+    let rows = "";
+    for (const r of cashRows) {
+      const nm = r.name ? r.name : "";
+      rows += "<tr>" + cell(nm, TDB) + cell(typeof r.c1 === "number" ? r.c1 : "") +
+              cell(nm, TDB) + cell(typeof r.c2 === "number" ? r.c2 : "") + "</tr>";
+    }
+    const foot = '<tr><td ' + TDB + ' colspan="3">إجمالي الكاش</td>' + cell(cashTotal(), TDB) + "</tr>";
+    body = '<table style="border-collapse:collapse;width:100%;"><tr><th ' + TH + ">الخط 1</th><th " + TH + ">الكاش 1</th><th " + TH +
+           ">الخط 2</th><th " + TH + ">الكاش 2</th></tr>" + rows + foot + "</table>";
+  } else {
+    const f = closingFigures();
+    const line = (label, v, st) => "<tr><td " + TDB + ">" + label + "</td>" + cell(v, st) + "</tr>";
+    body = '<table style="border-collapse:collapse;width:60%;margin:0 auto;">' +
+      line("الخزنة", closing.treasury) + line("الكاش", f.cash) + line("الخارج", f.out) + line("الرصيد", closing.balance) +
+      line("المجموع", f.total4, TDB) + line("إجمالي الداخل", f.inn) +
+      line(diffLabel(f.diff), Math.abs(f.diff), TDB) + "</table>";
+  }
+
+  return '<h2 style="text-align:center;margin:0 0 4px;">' + title + "</h2>" +
+         '<p style="text-align:center;margin:0 0 14px;color:#555;">' + getDateString() + "</p>" + body;
+}
+
+document.getElementById("btn-export-excel").addEventListener("click", () => {
+  if (typeof XLSX === "undefined") {
+    alert("مكتبة الإكسيل لسه ما اتحمّلتش. اتأكد من الإنترنت وحدّث الصفحة.");
+    return;
+  }
+  const wb = XLSX.utils.book_new();
+  wb.Workbook = { Views: [{ RTL: true }] };
+  const ws = XLSX.utils.aoa_to_sheet(viewSheetData(currentView));
+  XLSX.utils.book_append_sheet(wb, ws, VIEW_TITLES[currentView]);
+  XLSX.writeFile(wb, VIEW_TITLES[currentView] + "_" + getDateString() + ".xlsx");
 });
 
 document.getElementById("btn-export-pdf").addEventListener("click", () => {
-  const element = document.getElementById("pdf-area");
+  if (typeof html2pdf === "undefined") {
+    alert("مكتبة الـ PDF لسه ما اتحمّلتش. اتأكد من الإنترنت وحدّث الصفحة.");
+    return;
+  }
+  const wrap = document.createElement("div");
+  wrap.setAttribute("dir", "rtl");
+  wrap.style.cssText = "position:fixed;left:-10000px;top:0;width:1000px;background:#fff;color:#000;padding:20px;font-family:Tahoma,Arial,sans-serif;";
+  wrap.innerHTML = reportHtml(currentView);
+  document.body.appendChild(wrap);
   const opt = {
-    margin:       10,
-    filename:     `تقرير_دفتر_${currentBook}_${getDateString()}.pdf`,
-    image:        { type: 'jpeg', quality: 0.98 },
-    html2canvas:  { scale: 2 },
-    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'landscape' }
+    margin: 10,
+    filename: VIEW_TITLES[currentView] + "_" + getDateString() + ".pdf",
+    image: { type: "jpeg", quality: 0.98 },
+    html2canvas: { scale: 2 },
+    jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
+    pagebreak: { mode: ["css", "legacy"] }
   };
-  html2pdf().from(element).set(opt).save();
+  html2pdf().from(wrap).set(opt).save()
+    .then(() => wrap.remove())
+    .catch(() => {
+      wrap.remove();
+      alert("تعذر إنشاء ملف الـ PDF.");
+    });
 });
+// ===== نهاية التصدير =====
 
 const fileImport = document.getElementById("file-import");
 document.getElementById("btn-import").addEventListener("click", () => fileImport.click());
@@ -295,6 +389,7 @@ fileImport.addEventListener("change", (e) => {
     try {
       const importedData = JSON.parse(event.target.result);
       if (!importedData.in || !importedData.out) throw new Error();
+      restoring = true;
       
       const tx = db.transaction("people", "readwrite");
       tx.objectStore("people").clear();
@@ -311,10 +406,37 @@ fileImport.addEventListener("change", (e) => {
           data[b].push(p);
         }
       }
-      render();
+      if (Array.isArray(importedData.cash)) {
+        const txc = db.transaction("cash", "readwrite");
+        txc.objectStore("cash").clear();
+        await new Promise(res => txc.oncomplete = res);
+        cashRows = [];
+        let order = 0;
+        for (const r of importedData.cash) {
+          const row = {
+            name: String(r.name || ""),
+            c1: typeof r.c1 === "number" ? r.c1 : null,
+            c2: typeof r.c2 === "number" ? r.c2 : null,
+            order: order++
+          };
+          await putStore("cash", row);
+          cashRows.push(row);
+        }
+      }
+      if (importedData.closing) {
+        closing = {
+          key: "closing",
+          treasury: Number(importedData.closing.treasury) || 0,
+          balance: Number(importedData.closing.balance) || 0
+        };
+        await putStore("settings", closing);
+      }
+      showView(currentView);
       alert("تمت استعادة البيانات بنجاح!");
     } catch (err) {
       alert("الملف غير صالح أو حدث خطأ أثناء الاستعادة.");
+    } finally {
+      restoring = false;
     }
   };
   reader.readAsText(file);
@@ -733,6 +855,401 @@ nameForm.addEventListener("submit", async (e) => {
 });
 // ===== نهاية التنفيذ =====
 
+// ===== قسم الكاش وقسم التقفيل =====
+const tabCash = document.getElementById("tab-cash");
+const tabClosing = document.getElementById("tab-closing");
+const cashView = document.getElementById("cash-view");
+const closingView = document.getElementById("closing-view");
+const cashBody = document.querySelector("#cash-table tbody");
+const btnAdd = document.getElementById("btn-add");
+
+function isLedgerView() {
+  return currentView === "in" || currentView === "out";
+}
+
+function showView(view) {
+  currentView = view;
+  if (view === "in" || view === "out") currentBook = view;
+  document.body.classList.toggle("out", view === "out");
+  tabIn.classList.toggle("active", view === "in");
+  tabOut.classList.toggle("active", view === "out");
+  tabCash.classList.toggle("active", view === "cash");
+  tabClosing.classList.toggle("active", view === "closing");
+
+  const ledger = isLedgerView();
+  document.querySelector(".search-box").hidden = !ledger;
+  document.getElementById("pdf-area").hidden = !ledger;
+  document.getElementById("ledger-total").hidden = !ledger;
+  cashView.hidden = view !== "cash";
+  closingView.hidden = view !== "closing";
+  btnAdd.hidden = view === "closing";
+  btnAdd.textContent = view === "cash" ? "إضافة خط" : "عملية جديدة";
+
+  if (ledger) render();
+  if (view === "cash") renderCash();
+  if (view === "closing") renderClosing();
+}
+
+function putStore(storeName, value) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const req = tx.objectStore(storeName).put(value);
+    req.onsuccess = () => { if (storeName === "cash") value.id = req.result; };
+    tx.oncomplete = () => { resolve(); markChanged(); };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+function deleteFromStore(storeName, id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    tx.objectStore(storeName).delete(id);
+    tx.oncomplete = () => { resolve(); markChanged(); };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+function loadCash() {
+  return new Promise((resolve, reject) => {
+    const req = db.transaction("cash").objectStore("cash").getAll();
+    req.onsuccess = () => resolve(req.result.sort((a, b) => (a.order - b.order) || (a.id - b.id)));
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function loadClosing() {
+  return new Promise((resolve, reject) => {
+    const req = db.transaction("settings").objectStore("settings").get("closing");
+    req.onsuccess = () => resolve(req.result || { key: "closing", treasury: 0, balance: 0 });
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function round2(n) {
+  return Math.round(n * 100) / 100;
+}
+
+function cashNum(v) {
+  return typeof v === "number" ? v : 0;
+}
+
+function cashTotal() {
+  return round2(cashRows.reduce((t, r) => t + cashNum(r.c1) + cashNum(r.c2), 0));
+}
+
+function ledgerTotal(book) {
+  return round2(data[book].reduce((t, p) => t + sum(p.ops), 0));
+}
+
+function renderCash() {
+  let html = "";
+  for (const r of cashRows) {
+    const nm = r.name ? esc(r.name) : "&nbsp;";
+    html += "<tr>" +
+      '<td class="cname" data-id="' + r.id + '">' + nm + "</td>" +
+      '<td class="ccash" data-id="' + r.id + '" data-col="1">' + (typeof r.c1 === "number" ? money(r.c1) : "") + "</td>" +
+      '<td class="cname" data-id="' + r.id + '">' + nm + "</td>" +
+      '<td class="ccash" data-id="' + r.id + '" data-col="2">' + (typeof r.c2 === "number" ? money(r.c2) : "") + "</td>" +
+      "</tr>";
+  }
+  cashBody.innerHTML = html;
+  document.getElementById("cash-total").textContent = money(cashTotal()) + " جنيه";
+}
+
+// ----- نافذة قيمة الكاش -----
+const cashDialog = document.getElementById("cash-dialog");
+const cashForm = document.getElementById("cash-form");
+const cashDlgTitle = document.getElementById("cash-dlg-title");
+const cashInput = document.getElementById("cash-input");
+let cashEditing = null;
+
+// ----- نافذة اسم الخط -----
+const cashNameDialog = document.getElementById("cash-name-dialog");
+const cashNameForm = document.getElementById("cash-name-form");
+const cashNameTitle = document.getElementById("cash-name-title");
+const cashNameInput = document.getElementById("cash-name-input");
+const cashNameDelete = document.getElementById("cash-name-delete");
+let cashNameEditing = null;
+
+function openCashNameDialog(row) {
+  cashNameEditing = row;
+  cashNameTitle.textContent = row ? "تعديل اسم الخط" : "خط جديد";
+  cashNameInput.value = row ? row.name : "";
+  cashNameDelete.hidden = !row;
+  cashNameDialog.showModal();
+  cashNameInput.focus();
+}
+
+cashBody.addEventListener("click", (e) => {
+  const c = e.target.closest("td.ccash");
+  if (c) {
+    const row = cashRows.find(r => r.id === Number(c.dataset.id));
+    if (!row) return;
+    const col = Number(c.dataset.col);
+    cashEditing = { row: row, col: col };
+    cashDlgTitle.textContent = "كاش " + col + " - " + (row.name || "بدون اسم");
+    const cur = row["c" + col];
+    cashInput.value = typeof cur === "number" ? cur : "";
+    cashDialog.showModal();
+    cashInput.focus();
+    return;
+  }
+  const n = e.target.closest("td.cname");
+  if (n) {
+    const row = cashRows.find(r => r.id === Number(n.dataset.id));
+    if (row) openCashNameDialog(row);
+  }
+});
+
+document.getElementById("cash-cancel").addEventListener("click", () => cashDialog.close());
+document.getElementById("cash-clear").addEventListener("click", () => {
+  cashInput.value = "";
+  cashForm.requestSubmit();
+});
+
+cashForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!cashEditing) return;
+  const row = cashEditing.row;
+  const key = "c" + cashEditing.col;
+  const raw = cashInput.value.trim();
+  const val = raw === "" ? null : Number(raw);
+  if (val !== null && !Number.isFinite(val)) return;
+  const old = row[key];
+  row[key] = val;
+  try {
+    await putStore("cash", row);
+  } catch (err) {
+    row[key] = old;
+    alert("لم يتم الحفظ! حاول مرة أخرى.");
+  }
+  cashDialog.close();
+  renderCash();
+});
+
+document.getElementById("cash-name-cancel").addEventListener("click", () => cashNameDialog.close());
+
+cashNameDelete.addEventListener("click", async () => {
+  const row = cashNameEditing;
+  if (!row) return;
+  if (!confirm("تحذف الخط «" + (row.name || "بدون اسم") + "» بقيمه (كاش 1 وكاش 2)؟")) return;
+  const pos = cashRows.indexOf(row);
+  if (pos >= 0) cashRows.splice(pos, 1);
+  try {
+    await deleteFromStore("cash", row.id);
+  } catch (err) {
+    if (pos >= 0) cashRows.splice(pos, 0, row);
+    alert("لم يتم الحذف! حاول مرة أخرى.");
+  }
+  cashNameDialog.close();
+  renderCash();
+});
+
+cashNameForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = cashNameInput.value.trim().replace(/\s+/g, " ")
+    .replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
+  const row = cashNameEditing;
+  if (row) {
+    const old = row.name;
+    row.name = name;
+    try {
+      await putStore("cash", row);
+    } catch (err) {
+      row.name = old;
+      alert("لم يتم الحفظ! حاول مرة أخرى.");
+    }
+  } else {
+    if (!name) return;
+    const order = cashRows.reduce((m, r) => Math.max(m, r.order || 0), 0) + 1;
+    const fresh = { name: name, c1: null, c2: null, order: order };
+    cashRows.push(fresh);
+    try {
+      await putStore("cash", fresh);
+    } catch (err) {
+      cashRows.pop();
+      alert("لم يتم الحفظ! حاول مرة أخرى.");
+    }
+  }
+  cashNameDialog.close();
+  renderCash();
+});
+
+// زر "إضافة خط" في تاب الكاش (يعمل بدل "عملية جديدة")
+btnAdd.addEventListener("click", (e) => {
+  if (currentView !== "cash") return;
+  e.stopImmediatePropagation();
+  openCashNameDialog(null);
+}, true);
+
+// ----- التقفيل -----
+const cTreasury = document.getElementById("c-treasury");
+const cBalance = document.getElementById("c-balance");
+let closingTimer = null;
+
+function renderClosing(keepInputs) {
+  const cash = cashTotal();
+  const out = ledgerTotal("out");
+  const inn = ledgerTotal("in");
+  if (!keepInputs) {
+    cTreasury.value = closing.treasury ? closing.treasury : "";
+    cBalance.value = closing.balance ? closing.balance : "";
+  }
+  const total4 = round2(closing.treasury + cash + out + closing.balance);
+  const diff = round2(total4 - inn);
+
+  document.getElementById("c-cash").textContent = money(cash);
+  document.getElementById("c-out").textContent = money(out);
+  document.getElementById("c-sum").textContent = money(total4);
+  document.getElementById("c-in").textContent = money(inn);
+  document.getElementById("c-diff-label").textContent = diff > 0 ? "زيادة" : (diff < 0 ? "عجز" : "متطابق");
+  document.getElementById("c-diff").textContent = money(Math.abs(diff)) + " جنيه";
+  document.getElementById("c-diff-box").className = "closing-diff " + (diff > 0 ? "up" : (diff < 0 ? "down" : "even"));
+}
+
+async function saveClosingNow() {
+  clearTimeout(closingTimer);
+  closingTimer = null;
+  try {
+    await putStore("settings", closing);
+  } catch (err) {
+    alert("لم يتم حفظ التقفيل! حاول مرة أخرى.");
+  }
+}
+
+function onClosingInput() {
+  closing.treasury = Number(cTreasury.value) || 0;
+  closing.balance = Number(cBalance.value) || 0;
+  renderClosing(true);
+  clearTimeout(closingTimer);
+  closingTimer = setTimeout(saveClosingNow, 400);
+}
+
+cTreasury.addEventListener("input", onClosingInput);
+cBalance.addEventListener("input", onClosingInput);
+cTreasury.addEventListener("change", saveClosingNow);
+cBalance.addEventListener("change", saveClosingNow);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && closingTimer) saveClosingNow();
+});
+
+tabCash.addEventListener("click", () => showView("cash"));
+tabClosing.addEventListener("click", () => showView("closing"));
+
+
+// ----- أوامر الصوت للكاش والتقفيل -----
+const CASH_ALIASES = {
+  "اس": "s", "او": "o", "اوه": "o", "ار": "r", "دي": "d", "كي": "k", "اف": "f"
+};
+
+function cashKey(s) {
+  return nameKey(s).replace(/^ال/, "").replace(/\s+/g, "");
+}
+
+function findCashRows(spoken, rows) {
+  let k = cashKey(spoken);
+  if (!k) return [];
+  if (CASH_ALIASES[k]) k = CASH_ALIASES[k];
+  const exact = rows.filter(r => r.name && cashKey(r.name) === k);
+  if (exact.length) return exact;
+  return rows.filter(r => {
+    if (!r.name) return false;
+    const rk = cashKey(r.name);
+    return rk.includes(k) || (rk.length >= 3 && k.includes(rk));
+  });
+}
+
+function parseSectionCommand(text) {
+  const clean = text
+    .replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d))
+    .replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
+  const tokens = clean.split(/\s+/).filter(Boolean).map(t => ({ orig: t, n: normAr(t) }));
+
+  const iT = tokens.findIndex(t => t.n === "الخزنه" || t.n === "خزنه");
+  const iB = tokens.findIndex(t => t.n === "الرصيد" || t.n === "رصيد");
+  if (iT !== -1 || iB !== -1) {
+    const useT = iT !== -1;
+    const skip = useT ? iT : iB;
+    const rest = tokens.filter((t, i) => i !== skip).map(t => t.orig).join(" ");
+    return { type: "closing", field: useT ? "treasury" : "balance", amount: parseVoice(rest).amount };
+  }
+
+  const iC = tokens.findIndex(t => t.n === "كاش" || t.n === "الكاش");
+  if (iC === -1) return null;
+
+  let col = null;
+  const drop = new Set([iC]);
+  const nx = tokens[iC + 1];
+  if (nx) {
+    if (["1", "واحد", "الاول", "الاولي", "اول"].includes(nx.n)) { col = 1; drop.add(iC + 1); }
+    else if (["2", "اتنين", "اثنين", "التاني", "تاني", "الثاني"].includes(nx.n)) { col = 2; drop.add(iC + 1); }
+  }
+  const rest = tokens.filter((t, i) => !drop.has(i)).map(t => t.orig).join(" ");
+  const p = parseVoice(rest);
+  return { type: "cash", name: p.name, amount: p.amount, col: col };
+}
+
+async function runSectionCommand(cmd, heard) {
+  const head = "سمعتك بتقول: " + heard + "\n\n";
+
+  if (cmd.type === "closing") {
+    const label = cmd.field === "treasury" ? "الخزنة" : "الرصيد";
+    if (!(cmd.amount > 0)) {
+      alert(head + "ما فهمتش المبلغ.");
+      return;
+    }
+    if (!confirm(head + "تسجّل " + label + " = " + money(cmd.amount) + "؟")) return;
+    closing[cmd.field] = cmd.amount;
+    showView("closing");
+    await saveClosingNow();
+    return;
+  }
+
+  if (!cmd.name) {
+    alert(head + "ما فهمتش اسم الخط.");
+    return;
+  }
+  if (!(cmd.amount > 0)) {
+    alert(head + "ما فهمتش المبلغ.");
+    return;
+  }
+  let col = cmd.col;
+  let found = findCashRows(cmd.name, cashRows);
+  if (found.length === 0) {
+    const m = cmd.name.match(/^(.*\S)\s+([12])$/);
+    if (m) {
+      found = findCashRows(m[1], cashRows);
+      if (found.length && col === null) col = Number(m[2]);
+    }
+  }
+  if (found.length === 0) {
+    alert(head + "مش لاقي خط اسمه «" + cmd.name + "».");
+    return;
+  }
+  if (found.length > 1) {
+    alert(head + "فيه أكتر من خط قريب: " + found.map(r => r.name).join(" ، ") + "\nقول الاسم كامل.");
+    return;
+  }
+  const row = found[0];
+  const usedCol = col || 1;
+  const hint = col ? "" : "\n(لو قصدك كاش 2 اضغط إلغاء وقول: «كاش 2 " + row.name + " " + cmd.amount + "»)";
+  if (!confirm(head + "تسجّل كاش " + usedCol + " لـ«" + row.name + "» = " + money(cmd.amount) + "؟" + hint)) return;
+  const key = "c" + usedCol;
+  const old = row[key];
+  row[key] = cmd.amount;
+  showView("cash");
+  try {
+    await putStore("cash", row);
+  } catch (err) {
+    row[key] = old;
+    alert("لم يتم الحفظ! حاول مرة أخرى.");
+  }
+  renderCash();
+}
+// ===== نهاية الكاش والتقفيل =====
+
 const btnMic = document.getElementById("btn-mic");
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -759,6 +1276,12 @@ if (SpeechRecognition) {
     const cmd = parseCommand(text);
     if (cmd) {
       runDeleteCommand(cmd, text);
+      return;
+    }
+
+    const section = parseSectionCommand(text);
+    if (section) {
+      runSectionCommand(section, text);
       return;
     }
 
@@ -792,6 +1315,8 @@ async function start() {
     db = await openDB();
     const all = await loadAll();
     for (const p of all) data[p.book].push(p);
+    cashRows = await loadCash();
+    closing = await loadClosing();
     if (navigator.storage && navigator.storage.persist) {
       navigator.storage.persist();
     }
@@ -840,7 +1365,9 @@ function downloadBackup() {
     app: "daftar",
     date: getDateString(),
     in: data.in.filter(p => p.ops.length > 0),
-    out: data.out.filter(p => p.ops.length > 0)
+    out: data.out.filter(p => p.ops.length > 0),
+    cash: cashRows.map(r => ({ name: r.name, c1: r.c1, c2: r.c2, order: r.order })),
+    closing: { treasury: closing.treasury, balance: closing.balance }
   };
   const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -859,6 +1386,7 @@ function downloadBackup() {
 }
 
 function autoBackupIfNeeded() {
+  if (restoring) return;
   try {
     if (localStorage.getItem(BACKUP_DIRTY_KEY) !== "1") return;
     const last = Number(localStorage.getItem(BACKUP_TIME_KEY) || 0);

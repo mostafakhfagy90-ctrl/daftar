@@ -230,3 +230,102 @@ td.op:active {
 td.person {
   cursor: pointer;
 }
+
+[hidden] {
+  display: none !important;
+}
+
+.tabs .tab {
+  font-size: 15px;
+  padding: 10px 4px;
+}
+
+.section-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+td.ccash {
+  min-width: 90px;
+  height: 46px;
+  cursor: pointer;
+}
+
+td.cname {
+  font-weight: bold;
+  cursor: pointer;
+}
+
+td.ccash:active, td.cname:active {
+  background: #eef6ef;
+}
+
+.closing-card {
+  margin: 10px 14px 0;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.closing-card label {
+  display: block;
+  margin: 10px 0 4px;
+  font-size: 14px;
+  color: #555;
+}
+
+.closing-card input {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 18px;
+}
+
+.closing-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 4px;
+  border-bottom: 1px solid #eee;
+  font-size: 16px;
+}
+
+.closing-row.sum {
+  margin-top: 8px;
+  border-top: 2px solid #ccc;
+  font-weight: bold;
+}
+
+.closing-diff {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 8px;
+  font-size: 18px;
+}
+
+.closing-diff strong {
+  font-size: 22px;
+}
+
+.closing-diff.up {
+  background: #dff3e4;
+  color: #1b6b34;
+}
+
+.closing-diff.down {
+  background: #fbe3e1;
+  color: #a32d2d;
+}
+
+.closing-diff.even {
+  background: #eee;
+  color: #555;
+}
