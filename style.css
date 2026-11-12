@@ -329,3 +329,455 @@ td.ccash:active, td.cname:active {
   background: #eee;
   color: #555;
 }
+
+/* ===== اليومية والخطوط ===== */
+.tabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs .tab {
+  flex: 0 0 auto;
+  min-width: 78px;
+}
+
+dialog select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 16px;
+  background: #fff;
+}
+
+.hint {
+  font-size: 12px;
+  color: #777;
+  margin-top: 8px;
+}
+
+.icon-btn.strong {
+  background: #b45309;
+  color: #fff;
+  border-color: #b45309;
+}
+
+.daily-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 14px 0;
+}
+
+.daily-title {
+  text-align: center;
+  font-weight: bold;
+}
+
+.daily-title small {
+  display: block;
+  color: #777;
+  font-weight: normal;
+}
+
+.daily-tools {
+  display: flex;
+  gap: 6px;
+  margin: 8px 14px 0;
+  flex-wrap: wrap;
+}
+
+.daily-wrap table {
+  min-width: 900px;
+  font-size: 13px;
+}
+
+.daily-wrap th.dh {
+  position: sticky;
+  top: 0;
+  background: #f0f0f0;
+  z-index: 2;
+  padding: 8px 4px;
+}
+
+.daily-wrap th.dhc {
+  background: #fff1d6;
+  color: #92400e;
+}
+
+.daily-wrap td {
+  padding: 8px 4px;
+  min-width: 62px;
+  height: 36px;
+  border: 1px solid #eee;
+  text-align: center;
+}
+
+.daily-wrap td.dw, .daily-wrap td.dc {
+  position: static;
+  font-weight: normal;
+  text-align: center;
+  cursor: pointer;
+  background: #fff;
+}
+
+.daily-wrap td.dc {
+  background: #fffaf0;
+}
+
+.daily-wrap td.dnext {
+  outline: 2px dashed #b45309;
+  outline-offset: -2px;
+}
+
+.dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #7c3aed;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.daily-wrap tfoot td {
+  position: sticky;
+  background: #fff7e6;
+  font-weight: bold;
+  z-index: 2;
+}
+
+.daily-wrap tr.dfoot1 td {
+  bottom: 38px;
+}
+
+.daily-wrap tr.dfoot2 td {
+  bottom: 0;
+  background: #fde68a;
+}
+
+.daily-wrap td.dgrandlabel {
+  text-align: left;
+  padding-left: 14px;
+}
+
+.daily-bar {
+  background: #fff1d6;
+  color: #92400e;
+}
+
+.hist-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 50vh;
+  overflow: auto;
+}
+
+.hist-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+}
+
+.lines-top {
+  display: flex;
+  gap: 6px;
+  margin: 10px 14px 0;
+}
+
+.lines-top input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 16px;
+}
+
+.lines-body {
+  flex: 1;
+  overflow: auto;
+  padding: 10px 14px 6px;
+}
+
+.lempty {
+  text-align: center;
+  color: #777;
+  padding: 18px 8px;
+}
+
+.lcard {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.lhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.lsmall {
+  font-size: 12px;
+  color: #777;
+}
+
+.lnum {
+  font-size: 22px;
+  font-weight: bold;
+}
+
+.lname {
+  font-size: 14px;
+  font-weight: normal;
+  color: #555;
+}
+
+.lphone {
+  font-size: 13px;
+  color: #666;
+  direction: ltr;
+  text-align: right;
+}
+
+.lbtns {
+  display: flex;
+  gap: 6px;
+}
+
+.lholder {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: #f3f6fb;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.lstatus {
+  margin: 10px 0 4px;
+}
+
+.lchip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  background: #eee;
+}
+
+.lchip.ok {
+  background: #dff3e4;
+  color: #1b6b34;
+}
+
+.lchip.late {
+  background: #fff1d6;
+  color: #92400e;
+}
+
+.lchip.overdue {
+  background: #fbe3e1;
+  color: #a32d2d;
+}
+
+.lchip.done {
+  background: #dff3e4;
+  color: #1b6b34;
+  font-weight: bold;
+}
+
+.lprog {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 8px 0 6px;
+}
+
+.lprog strong {
+  font-size: 24px;
+  color: #0e7490;
+}
+
+.lbars {
+  display: flex;
+  gap: 4px;
+}
+
+.seg {
+  flex: 1;
+  height: 10px;
+  background: #e5e7eb;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.seg div {
+  height: 100%;
+}
+
+.seg.ok div { background: #16a34a; }
+.seg.short div { background: #f59e0b; }
+.seg.now div { background: #0891b2; }
+
+.lbarlabels {
+  display: flex;
+  gap: 4px;
+  font-size: 11px;
+  color: #666;
+  text-align: center;
+  margin: 6px 0 8px;
+}
+
+.lbarlabels div {
+  flex: 1;
+}
+
+.lnote {
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+.lnote.warn {
+  color: #92400e;
+  background: #fff7e6;
+  padding: 6px 8px;
+  border-radius: 8px;
+}
+
+.lentries {
+  margin-top: 10px;
+  border-top: 1px solid #eee;
+}
+
+.lentry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 13px;
+}
+
+.lentry .etime {
+  color: #777;
+  min-width: 90px;
+}
+
+.lentry .eamt {
+  font-weight: bold;
+  min-width: 70px;
+}
+
+.lentry .eamt.neg {
+  color: #a32d2d;
+}
+
+.lentry .enote {
+  flex: 1;
+  color: #555;
+}
+
+.lactions {
+  margin-top: 10px;
+  display: flex;
+}
+
+.lactions .main-btn {
+  flex: 1;
+}
+
+.lhist {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #666;
+}
+
+.lresults {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.lres, .lrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 10px;
+  font-size: 14px;
+  text-align: right;
+  width: 100%;
+}
+
+.lres b, .lrow .rnum {
+  min-width: 30px;
+  font-weight: bold;
+}
+
+.lres small {
+  margin-right: auto;
+  color: #777;
+  direction: ltr;
+}
+
+.lrow .rname {
+  flex: 1;
+  color: #555;
+}
+
+.lrow .rprog {
+  font-size: 12px;
+}
+
+.rprog.ok { color: #0e7490; }
+.rprog.late { color: #b45309; }
+.rprog.overdue { color: #a32d2d; }
+
+.lsum {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.lsum div {
+  flex: 1;
+  background: #e0f7fa;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #0e7490;
+}
+
+.lsum strong {
+  display: block;
+  font-size: 18px;
+}
+
+.lsection {
+  font-size: 13px;
+  color: #777;
+  margin: 8px 2px 6px;
+}
+
+.daily-wrap th:first-child, .daily-wrap td:first-child {
+  right: auto;
+}
+
+.daily-wrap tfoot td {
+  height: 38px;
+}

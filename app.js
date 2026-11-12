@@ -5,22 +5,54 @@ let currentView = "in";
 let cashRows = [];
 let closing = { key: "closing", treasury: 0, balance: 0 };
 let restoring = false;
+let dailyDays = [];
+let dailyViewId = null;
+let lines = [];
+let assigns = [];
+let dailyRule = { key: "dailyRule", min: 5, unit: 5, first: 650, step: 500 };
+let lineDefaults = { key: "lineDefaults", target: 180000, days: 3 };
 const DEFAULT_CASH_ROWS = ["اخضر", "لبني", "هواوي", "S", "O", "R", "D", "ابوصغير", "ابوامر", "احمر", "K", "F.V/K.V", "", ""];
 
 function openDB() {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open("daftar-db", 3);
+    const req = indexedDB.open("daftar-db", 4);
     req.onupgradeneeded = (e) => {
       const database = e.target.result;
+      const tx = e.target.transaction;
       if (!database.objectStoreNames.contains("people")) {
         database.createObjectStore("people", { keyPath: "id", autoIncrement: true });
       }
+      let cashIsNew = false;
       if (!database.objectStoreNames.contains("cash")) {
+        cashIsNew = true;
         const cs = database.createObjectStore("cash", { keyPath: "id", autoIncrement: true });
-        DEFAULT_CASH_ROWS.forEach((name, i) => cs.add({ name: name, c1: null, c2: null, order: i }));
+        DEFAULT_CASH_ROWS.forEach((name, i) => cs.add({ n1: name, n2: name, c1: null, c2: null, order: i }));
       }
       if (!database.objectStoreNames.contains("settings")) {
         database.createObjectStore("settings", { keyPath: "key" });
+      }
+      if (!database.objectStoreNames.contains("daily")) {
+        database.createObjectStore("daily", { keyPath: "id", autoIncrement: true });
+      }
+      if (!database.objectStoreNames.contains("lines")) {
+        database.createObjectStore("lines", { keyPath: "n" });
+      }
+      if (!database.objectStoreNames.contains("assigns")) {
+        database.createObjectStore("assigns", { keyPath: "id", autoIncrement: true });
+      }
+      if (!cashIsNew) {
+        tx.objectStore("cash").openCursor().onsuccess = (ev) => {
+          const cur = ev.target.result;
+          if (cur) {
+            const v = cur.value;
+            if (v.n1 === undefined) {
+              v.n1 = v.name || "";
+              v.n2 = v.name || "";
+              cur.update(v);
+            }
+            cur.continue();
+          }
+        };
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -233,8 +265,9 @@ function getDateString() {
   return `${year}-${month}-${day}`;
 }
 
-// ===== التصدير: نسخة من كل تاب لوحدها (إكسيل / PDF) =====
-const VIEW_TITLES = { in: "الداخل", out: "الخارج", cash: "الكاش", closing: "التقفيل" };
+// ===== التصدير: نسخة من كل تاب لوحدها أو الكل (إكسيل / PDF) =====
+const VIEW_TITLES = { in: "الداخل", out: "الخارج", cash: "الكاش", daily: "اليومية", lines: "الخطوط", closing: "التقفيل" };
+const ALL_VIEWS = ["in", "out", "cash", "daily", "lines", "closing"];
 
 function closingFigures() {
   const cash = cashTotal();
@@ -247,6 +280,53 @@ function closingFigures() {
 
 function diffLabel(diff) {
   return diff > 0 ? "زيادة" : (diff < 0 ? "عجز" : "متطابق");
+}
+
+function lineStatusText(a) {
+  if (a.status === "closed") return "مقفولة";
+  const p = planInfo(a, currentDay().id);
+  if (p.status === "done") return "مكتمل";
+  if (p.status === "overdue") return "انتهت المدة";
+  if (p.status === "late") return "متأخر " + p.deficitBefore;
+  return "في الميعاد";
+}
+
+function linesSheetRows() {
+  const rows = [["رقم الخط", "الاسم", "التليفون", "الحامل", "المستهدف", "المحصّل", "المتبقي", "اليوم", "الحالة"]];
+  const dayId = currentDay().id;
+  for (const a of assigns.slice().sort((x, y) => x.lineN - y.lineN)) {
+    const l = lineByN(a.lineN) || { name: "", phone: "" };
+    const total = sumAmounts(a.entries || []);
+    rows.push([a.lineN, l.name, l.phone, holderLabel(a), a.target, total, Math.max(0, round2(a.target - total)),
+               Math.max(1, dayId - a.startDay + 1), lineStatusText(a)]);
+  }
+  return rows;
+}
+
+function dailySheetRows(day) {
+  const rows = [["اليومية - " + dateLabel(day.date)]];
+  const head = [];
+  for (let p = 0; p < DAILY_PAIRS; p++) head.push("سحب و إيداع", "عمولة");
+  rows.push(head);
+  const count = Math.max(1, lastUsedRow(day) + 1);
+  for (let r = 0; r < count; r++) {
+    const row = [];
+    for (let p = 0; p < DAILY_PAIRS; p++) {
+      const c = day.cells[cellKey(p, r)];
+      row.push(c ? c.w : "", c ? c.c : "");
+    }
+    rows.push(row);
+  }
+  rows.push([]);
+  const t = dailyTotals(day);
+  const tot = [];
+  for (let p = 0; p < DAILY_PAIRS; p++) tot.push("", t.used[p] ? t.perPair[p] : "");
+  rows.push(tot);
+  const grand = new Array(DAILY_PAIRS * 2).fill("");
+  grand[0] = "إجمالي كل العمولات";
+  grand[DAILY_PAIRS * 2 - 1] = t.grand;
+  rows.push(grand);
+  return rows;
 }
 
 function viewSheetData(view) {
@@ -273,12 +353,16 @@ function viewSheetData(view) {
   } else if (view === "cash") {
     rows.push(["الخط 1", "الكاش 1", "الخط 2", "الكاش 2"]);
     for (const r of cashRows) {
-      rows.push([r.name, typeof r.c1 === "number" ? r.c1 : "", r.name, typeof r.c2 === "number" ? r.c2 : ""]);
+      rows.push([r.n1, typeof r.c1 === "number" ? r.c1 : "", r.n2, typeof r.c2 === "number" ? r.c2 : ""]);
     }
     rows.push([]);
     rows.push(["إجمالي الكاش 1", round2(cashRows.reduce((t, r) => t + cashNum(r.c1), 0))]);
     rows.push(["إجمالي الكاش 2", round2(cashRows.reduce((t, r) => t + cashNum(r.c2), 0))]);
     rows.push(["إجمالي الكاش", cashTotal()]);
+  } else if (view === "daily") {
+    return dailySheetRows(viewedDay());
+  } else if (view === "lines") {
+    return linesSheetRows();
   } else {
     const f = closingFigures();
     rows.push(["البند", "القيمة"]);
@@ -300,6 +384,7 @@ function reportHtml(view) {
   const TDB = 'style="border:1px solid #999;padding:8px 10px;text-align:center;font-size:16px;font-weight:bold;background:#f6f6f6;"';
   const cell = (v, st) => "<td " + (st || TD) + ">" + (typeof v === "number" ? money(v) : esc(String(v))) + "</td>";
   let body = "";
+  let subtitle = getDateString();
 
   if (view === "in" || view === "out") {
     const book = data[view].filter(p => p.ops.length > 0);
@@ -319,13 +404,50 @@ function reportHtml(view) {
   } else if (view === "cash") {
     let rows = "";
     for (const r of cashRows) {
-      const nm = r.name ? r.name : "";
-      rows += "<tr>" + cell(nm, TDB) + cell(typeof r.c1 === "number" ? r.c1 : "") +
-              cell(nm, TDB) + cell(typeof r.c2 === "number" ? r.c2 : "") + "</tr>";
+      rows += "<tr>" + cell(r.n1 || "", TDB) + cell(typeof r.c1 === "number" ? r.c1 : "") +
+              cell(r.n2 || "", TDB) + cell(typeof r.c2 === "number" ? r.c2 : "") + "</tr>";
     }
     const foot = '<tr><td ' + TDB + ' colspan="3">إجمالي الكاش</td>' + cell(cashTotal(), TDB) + "</tr>";
     body = '<table style="border-collapse:collapse;width:100%;"><tr><th ' + TH + ">الخط 1</th><th " + TH + ">الكاش 1</th><th " + TH +
            ">الخط 2</th><th " + TH + ">الكاش 2</th></tr>" + rows + foot + "</table>";
+  } else if (view === "daily") {
+    const day = viewedDay();
+    subtitle = dateLabel(day.date);
+    const T1 = 'style="border:1px solid #999;padding:4px 3px;background:#eee;text-align:center;font-size:11px;"';
+    const T2 = 'style="border:1px solid #999;padding:4px 3px;text-align:center;font-size:12px;height:20px;"';
+    const T3 = 'style="border:1px solid #999;padding:5px 3px;text-align:center;font-size:12px;font-weight:bold;background:#f6f6f6;"';
+    let head = "<tr>";
+    for (let p = 0; p < DAILY_PAIRS; p++) head += "<th " + T1 + ">سحب و إيداع</th><th " + T1 + ">عمولة</th>";
+    head += "</tr>";
+    const count = Math.max(20, lastUsedRow(day) + 1);
+    let rows = "";
+    for (let r = 0; r < count; r++) {
+      rows += "<tr>";
+      for (let p = 0; p < DAILY_PAIRS; p++) {
+        const c = day.cells[cellKey(p, r)];
+        rows += "<td " + T2 + ">" + (c ? money(c.w) : "") + "</td><td " + T2 + ">" + (c ? money(c.c) : "") + "</td>";
+      }
+      rows += "</tr>";
+    }
+    const t = dailyTotals(day);
+    let f1 = "<tr>";
+    for (let p = 0; p < DAILY_PAIRS; p++) f1 += "<td " + T2 + "></td><td " + T3 + ">" + (t.used[p] ? money(t.perPair[p]) : "") + "</td>";
+    f1 += "</tr>";
+    const f2 = '<tr><td ' + T3 + ' colspan="' + (DAILY_PAIRS * 2 - 1) + '">إجمالي كل العمولات</td><td ' + T3 + ">" + money(t.grand) + "</td></tr>";
+    body = '<table style="border-collapse:collapse;width:100%;">' + head + rows + f1 + f2 + "</table>";
+  } else if (view === "lines") {
+    const data2 = linesSheetRows();
+    let head = "<tr>";
+    for (const h of data2[0]) head += "<th " + TH + ">" + esc(h) + "</th>";
+    head += "</tr>";
+    let rows = "";
+    for (const r of data2.slice(1)) {
+      rows += "<tr>";
+      r.forEach((v, i) => { rows += cell(v === "" ? "—" : v, i === 0 ? TDB : TD); });
+      rows += "</tr>";
+    }
+    if (data2.length === 1) rows = '<tr><td ' + TD + ' colspan="9">لا توجد خطوط مخصصة</td></tr>';
+    body = '<table style="border-collapse:collapse;width:100%;">' + head + rows + "</table>";
   } else {
     const f = closingFigures();
     const line = (label, v, st) => "<tr><td " + TDB + ">" + label + "</td>" + cell(v, st) + "</tr>";
@@ -336,22 +458,24 @@ function reportHtml(view) {
   }
 
   return '<h2 style="text-align:center;margin:0 0 4px;">' + title + "</h2>" +
-         '<p style="text-align:center;margin:0 0 14px;color:#555;">' + getDateString() + "</p>" + body;
+         '<p style="text-align:center;margin:0 0 14px;color:#555;">' + esc(subtitle) + "</p>" + body;
 }
 
-document.getElementById("btn-export-excel").addEventListener("click", () => {
+function exportExcel(views, label) {
   if (typeof XLSX === "undefined") {
     alert("مكتبة الإكسيل لسه ما اتحمّلتش. اتأكد من الإنترنت وحدّث الصفحة.");
     return;
   }
   const wb = XLSX.utils.book_new();
   wb.Workbook = { Views: [{ RTL: true }] };
-  const ws = XLSX.utils.aoa_to_sheet(viewSheetData(currentView));
-  XLSX.utils.book_append_sheet(wb, ws, VIEW_TITLES[currentView]);
-  XLSX.writeFile(wb, VIEW_TITLES[currentView] + "_" + getDateString() + ".xlsx");
-});
+  for (const v of views) {
+    const ws = XLSX.utils.aoa_to_sheet(viewSheetData(v));
+    XLSX.utils.book_append_sheet(wb, ws, VIEW_TITLES[v]);
+  }
+  XLSX.writeFile(wb, label + "_" + getDateString() + ".xlsx");
+}
 
-document.getElementById("btn-export-pdf").addEventListener("click", () => {
+function exportPdf(views, label) {
   if (typeof html2pdf === "undefined") {
     alert("مكتبة الـ PDF لسه ما اتحمّلتش. اتأكد من الإنترنت وحدّث الصفحة.");
     return;
@@ -359,11 +483,11 @@ document.getElementById("btn-export-pdf").addEventListener("click", () => {
   const wrap = document.createElement("div");
   wrap.setAttribute("dir", "rtl");
   wrap.style.cssText = "position:fixed;left:-10000px;top:0;width:1000px;background:#fff;color:#000;padding:20px;font-family:Tahoma,Arial,sans-serif;";
-  wrap.innerHTML = reportHtml(currentView);
+  wrap.innerHTML = views.map(reportHtml).join('<div class="html2pdf__page-break"></div>');
   document.body.appendChild(wrap);
   const opt = {
     margin: 10,
-    filename: VIEW_TITLES[currentView] + "_" + getDateString() + ".pdf",
+    filename: label + "_" + getDateString() + ".pdf",
     image: { type: "jpeg", quality: 0.98 },
     html2canvas: { scale: 2 },
     jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
@@ -375,7 +499,16 @@ document.getElementById("btn-export-pdf").addEventListener("click", () => {
       wrap.remove();
       alert("تعذر إنشاء ملف الـ PDF.");
     });
-});
+}
+
+document.getElementById("btn-export-excel").addEventListener("click", () => exportExcel([currentView], VIEW_TITLES[currentView]));
+document.getElementById("btn-export-pdf").addEventListener("click", () => exportPdf([currentView], VIEW_TITLES[currentView]));
+
+const exportAllDialog = document.getElementById("export-all-dialog");
+document.getElementById("btn-export-all").addEventListener("click", () => exportAllDialog.showModal());
+document.getElementById("ex-close").addEventListener("click", () => exportAllDialog.close());
+document.getElementById("ex-excel-all").addEventListener("click", () => { exportAllDialog.close(); exportExcel(ALL_VIEWS, "دفتر_الكل"); });
+document.getElementById("ex-pdf-all").addEventListener("click", () => { exportAllDialog.close(); exportPdf(ALL_VIEWS, "دفتر_الكل"); });
 // ===== نهاية التصدير =====
 
 const fileImport = document.getElementById("file-import");
@@ -413,8 +546,10 @@ fileImport.addEventListener("change", (e) => {
         cashRows = [];
         let order = 0;
         for (const r of importedData.cash) {
+          const n1 = String(r.n1 !== undefined ? r.n1 : (r.name || ""));
           const row = {
-            name: String(r.name || ""),
+            n1: n1,
+            n2: String(r.n2 !== undefined ? r.n2 : n1),
             c1: typeof r.c1 === "number" ? r.c1 : null,
             c2: typeof r.c2 === "number" ? r.c2 : null,
             order: order++
@@ -430,6 +565,27 @@ fileImport.addEventListener("change", (e) => {
           balance: Number(importedData.closing.balance) || 0
         };
         await putStore("settings", closing);
+      }
+      if (importedData.dailyRule) {
+        Object.assign(dailyRule, importedData.dailyRule, { key: "dailyRule" });
+        await putStore("settings", dailyRule);
+      }
+      if (importedData.lineDefaults) {
+        Object.assign(lineDefaults, importedData.lineDefaults, { key: "lineDefaults" });
+        await putStore("settings", lineDefaults);
+      }
+      if (Array.isArray(importedData.lines) && importedData.lines.length) {
+        await replaceStore("lines", importedData.lines);
+        lines = importedData.lines.slice().sort((a, b) => a.n - b.n);
+      }
+      if (Array.isArray(importedData.daily) && importedData.daily.length) {
+        await replaceStore("daily", importedData.daily);
+        dailyDays = importedData.daily.slice().sort((a, b) => a.id - b.id);
+        dailyViewId = currentDay().id;
+      }
+      if (Array.isArray(importedData.assigns)) {
+        await replaceStore("assigns", importedData.assigns);
+        assigns = importedData.assigns.slice();
       }
       showView(currentView);
       alert("تمت استعادة البيانات بنجاح!");
@@ -857,8 +1013,12 @@ nameForm.addEventListener("submit", async (e) => {
 
 // ===== قسم الكاش وقسم التقفيل =====
 const tabCash = document.getElementById("tab-cash");
+const tabDaily = document.getElementById("tab-daily");
+const tabLines = document.getElementById("tab-lines");
 const tabClosing = document.getElementById("tab-closing");
 const cashView = document.getElementById("cash-view");
+const dailyView = document.getElementById("daily-view");
+const linesView = document.getElementById("lines-view");
 const closingView = document.getElementById("closing-view");
 const cashBody = document.querySelector("#cash-table tbody");
 const btnAdd = document.getElementById("btn-add");
@@ -871,22 +1031,27 @@ function showView(view) {
   currentView = view;
   if (view === "in" || view === "out") currentBook = view;
   document.body.classList.toggle("out", view === "out");
-  tabIn.classList.toggle("active", view === "in");
-  tabOut.classList.toggle("active", view === "out");
-  tabCash.classList.toggle("active", view === "cash");
-  tabClosing.classList.toggle("active", view === "closing");
+  const tabs = [["in", tabIn], ["out", tabOut], ["cash", tabCash], ["daily", tabDaily], ["lines", tabLines], ["closing", tabClosing]];
+  for (const [v, t] of tabs) {
+    t.classList.toggle("active", view === v);
+    if (view === v && t.scrollIntoView) t.scrollIntoView({ inline: "center", block: "nearest" });
+  }
 
   const ledger = isLedgerView();
   document.querySelector(".search-box").hidden = !ledger;
   document.getElementById("pdf-area").hidden = !ledger;
   document.getElementById("ledger-total").hidden = !ledger;
   cashView.hidden = view !== "cash";
+  dailyView.hidden = view !== "daily";
+  linesView.hidden = view !== "lines";
   closingView.hidden = view !== "closing";
-  btnAdd.hidden = view === "closing";
-  btnAdd.textContent = view === "cash" ? "إضافة خط" : "عملية جديدة";
+  btnAdd.hidden = !(ledger || view === "cash" || view === "daily");
+  btnAdd.textContent = view === "cash" ? "إضافة خط" : (view === "daily" ? "إضافة مبلغ" : "عملية جديدة");
 
   if (ledger) render();
   if (view === "cash") renderCash();
+  if (view === "daily") renderDaily();
+  if (view === "lines") renderLines();
   if (view === "closing") renderClosing();
 }
 
@@ -894,7 +1059,7 @@ function putStore(storeName, value) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, "readwrite");
     const req = tx.objectStore(storeName).put(value);
-    req.onsuccess = () => { if (storeName === "cash") value.id = req.result; };
+    req.onsuccess = () => { if (["cash", "daily", "assigns"].includes(storeName)) value.id = req.result; };
     tx.oncomplete = () => { resolve(); markChanged(); };
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error);
@@ -911,10 +1076,32 @@ function deleteFromStore(storeName, id) {
   });
 }
 
+function normCashRow(r) {
+  if (r.n1 === undefined) r.n1 = r.name || "";
+  if (r.n2 === undefined) r.n2 = r.name || "";
+  return r;
+}
+
 function loadCash() {
   return new Promise((resolve, reject) => {
     const req = db.transaction("cash").objectStore("cash").getAll();
-    req.onsuccess = () => resolve(req.result.sort((a, b) => (a.order - b.order) || (a.id - b.id)));
+    req.onsuccess = () => resolve(req.result.map(normCashRow).sort((a, b) => (a.order - b.order) || (a.id - b.id)));
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function loadAllFrom(storeName) {
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(storeName).objectStore(storeName).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function loadSetting(key, fallback) {
+  return new Promise((resolve, reject) => {
+    const req = db.transaction("settings").objectStore("settings").get(key);
+    req.onsuccess = () => resolve(req.result ? Object.assign({}, fallback, req.result) : fallback);
     req.onerror = () => reject(req.error);
   });
 }
@@ -946,11 +1133,12 @@ function ledgerTotal(book) {
 function renderCash() {
   let html = "";
   for (const r of cashRows) {
-    const nm = r.name ? esc(r.name) : "&nbsp;";
+    const nm1 = r.n1 ? esc(r.n1) : "&nbsp;";
+    const nm2 = r.n2 ? esc(r.n2) : "&nbsp;";
     html += "<tr>" +
-      '<td class="cname" data-id="' + r.id + '">' + nm + "</td>" +
+      '<td class="cname" data-id="' + r.id + '" data-col="1">' + nm1 + "</td>" +
       '<td class="ccash" data-id="' + r.id + '" data-col="1">' + (typeof r.c1 === "number" ? money(r.c1) : "") + "</td>" +
-      '<td class="cname" data-id="' + r.id + '">' + nm + "</td>" +
+      '<td class="cname" data-id="' + r.id + '" data-col="2">' + nm2 + "</td>" +
       '<td class="ccash" data-id="' + r.id + '" data-col="2">' + (typeof r.c2 === "number" ? money(r.c2) : "") + "</td>" +
       "</tr>";
   }
@@ -973,10 +1161,10 @@ const cashNameInput = document.getElementById("cash-name-input");
 const cashNameDelete = document.getElementById("cash-name-delete");
 let cashNameEditing = null;
 
-function openCashNameDialog(row) {
-  cashNameEditing = row;
-  cashNameTitle.textContent = row ? "تعديل اسم الخط" : "خط جديد";
-  cashNameInput.value = row ? row.name : "";
+function openCashNameDialog(row, col) {
+  cashNameEditing = row ? { row: row, col: col } : null;
+  cashNameTitle.textContent = row ? "تعديل اسم الخط " + col : "خط جديد";
+  cashNameInput.value = row ? (col === 1 ? row.n1 : row.n2) : "";
   cashNameDelete.hidden = !row;
   cashNameDialog.showModal();
   cashNameInput.focus();
@@ -989,7 +1177,7 @@ cashBody.addEventListener("click", (e) => {
     if (!row) return;
     const col = Number(c.dataset.col);
     cashEditing = { row: row, col: col };
-    cashDlgTitle.textContent = "كاش " + col + " - " + (row.name || "بدون اسم");
+    cashDlgTitle.textContent = "كاش " + col + " - " + ((col === 1 ? row.n1 : row.n2) || "بدون اسم");
     const cur = row["c" + col];
     cashInput.value = typeof cur === "number" ? cur : "";
     cashDialog.showModal();
@@ -999,7 +1187,7 @@ cashBody.addEventListener("click", (e) => {
   const n = e.target.closest("td.cname");
   if (n) {
     const row = cashRows.find(r => r.id === Number(n.dataset.id));
-    if (row) openCashNameDialog(row);
+    if (row) openCashNameDialog(row, Number(n.dataset.col));
   }
 });
 
@@ -1032,9 +1220,9 @@ cashForm.addEventListener("submit", async (e) => {
 document.getElementById("cash-name-cancel").addEventListener("click", () => cashNameDialog.close());
 
 cashNameDelete.addEventListener("click", async () => {
-  const row = cashNameEditing;
+  const row = cashNameEditing ? cashNameEditing.row : null;
   if (!row) return;
-  if (!confirm("تحذف الخط «" + (row.name || "بدون اسم") + "» بقيمه (كاش 1 وكاش 2)؟")) return;
+  if (!confirm("تحذف الصف كله «" + (row.n1 || "بدون اسم") + " / " + (row.n2 || "بدون اسم") + "» بقيمه (كاش 1 وكاش 2)؟")) return;
   const pos = cashRows.indexOf(row);
   if (pos >= 0) cashRows.splice(pos, 1);
   try {
@@ -1051,20 +1239,22 @@ cashNameForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const name = cashNameInput.value.trim().replace(/\s+/g, " ")
     .replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d));
-  const row = cashNameEditing;
-  if (row) {
-    const old = row.name;
-    row.name = name;
+  const editing = cashNameEditing;
+  if (editing) {
+    const row = editing.row;
+    const key = "n" + editing.col;
+    const old = row[key];
+    row[key] = name;
     try {
       await putStore("cash", row);
     } catch (err) {
-      row.name = old;
+      row[key] = old;
       alert("لم يتم الحفظ! حاول مرة أخرى.");
     }
   } else {
     if (!name) return;
     const order = cashRows.reduce((m, r) => Math.max(m, r.order || 0), 0) + 1;
-    const fresh = { name: name, c1: null, c2: null, order: order };
+    const fresh = { n1: name, n2: name, c1: null, c2: null, order: order };
     cashRows.push(fresh);
     try {
       await putStore("cash", fresh);
@@ -1079,9 +1269,13 @@ cashNameForm.addEventListener("submit", async (e) => {
 
 // زر "إضافة خط" في تاب الكاش (يعمل بدل "عملية جديدة")
 btnAdd.addEventListener("click", (e) => {
-  if (currentView !== "cash") return;
-  e.stopImmediatePropagation();
-  openCashNameDialog(null);
+  if (currentView === "cash") {
+    e.stopImmediatePropagation();
+    openCashNameDialog(null);
+  } else if (currentView === "daily") {
+    e.stopImmediatePropagation();
+    openNextDailySlot();
+  }
 }, true);
 
 // ----- التقفيل -----
@@ -1136,8 +1330,18 @@ document.addEventListener("visibilitychange", () => {
 });
 
 tabCash.addEventListener("click", () => showView("cash"));
+tabDaily.addEventListener("click", () => showView("daily"));
+tabLines.addEventListener("click", () => showView("lines"));
 tabClosing.addEventListener("click", () => showView("closing"));
 
+// التصدير (إكسيل / PDF) متاح في الداخل والخارج فقط
+for (const id of ["btn-export-excel", "btn-export-pdf"]) {
+  document.getElementById(id).addEventListener("click", (e) => {
+    if (isLedgerView()) return;
+    e.stopImmediatePropagation();
+    alert("التصدير متاح في تاب الداخل والخارج فقط.");
+  }, true);
+}
 
 // ----- أوامر الصوت للكاش والتقفيل -----
 const CASH_ALIASES = {
@@ -1148,17 +1352,33 @@ function cashKey(s) {
   return nameKey(s).replace(/^ال/, "").replace(/\s+/g, "");
 }
 
-function findCashRows(spoken, rows) {
+function findCashMatches(spoken, rows, col) {
   let k = cashKey(spoken);
   if (!k) return [];
   if (CASH_ALIASES[k]) k = CASH_ALIASES[k];
-  const exact = rows.filter(r => r.name && cashKey(r.name) === k);
-  if (exact.length) return exact;
-  return rows.filter(r => {
-    if (!r.name) return false;
-    const rk = cashKey(r.name);
-    return rk.includes(k) || (rk.length >= 3 && k.includes(rk));
-  });
+  const cols = col ? [col] : [1, 2];
+  const exact = [];
+  const partial = [];
+  for (const r of rows) {
+    for (const c of cols) {
+      const nm = c === 1 ? r.n1 : r.n2;
+      if (!nm) continue;
+      const rk = cashKey(nm);
+      if (rk === k) exact.push({ row: r, col: c });
+      else if (rk.includes(k) || (rk.length >= 3 && k.includes(rk))) partial.push({ row: r, col: c });
+    }
+  }
+  const list = exact.length ? exact : partial;
+  const byRow = new Map();
+  for (const m of list) {
+    if (!byRow.has(m.row)) byRow.set(m.row, []);
+    byRow.get(m.row).push(m.col);
+  }
+  const out = [];
+  for (const [row, cs] of byRow) {
+    out.push({ row: row, col: cs.length === 1 ? cs[0] : null });
+  }
+  return out;
 }
 
 function parseSectionCommand(text) {
@@ -1216,12 +1436,13 @@ async function runSectionCommand(cmd, heard) {
     return;
   }
   let col = cmd.col;
-  let found = findCashRows(cmd.name, cashRows);
+  let found = findCashMatches(cmd.name, cashRows, col);
   if (found.length === 0) {
     const m = cmd.name.match(/^(.*\S)\s+([12])$/);
     if (m) {
-      found = findCashRows(m[1], cashRows);
-      if (found.length && col === null) col = Number(m[2]);
+      const col2 = col === null ? Number(m[2]) : col;
+      found = findCashMatches(m[1], cashRows, col2);
+      if (found.length) col = col2;
     }
   }
   if (found.length === 0) {
@@ -1229,13 +1450,15 @@ async function runSectionCommand(cmd, heard) {
     return;
   }
   if (found.length > 1) {
-    alert(head + "فيه أكتر من خط قريب: " + found.map(r => r.name).join(" ، ") + "\nقول الاسم كامل.");
+    alert(head + "فيه أكتر من خط قريب: " + found.map(f => (f.col === 2 ? f.row.n2 : f.row.n1)).join(" ، ") + "\nقول الاسم كامل.");
     return;
   }
-  const row = found[0];
+  const row = found[0].row;
+  if (col === null) col = found[0].col;
   const usedCol = col || 1;
-  const hint = col ? "" : "\n(لو قصدك كاش 2 اضغط إلغاء وقول: «كاش 2 " + row.name + " " + cmd.amount + "»)";
-  if (!confirm(head + "تسجّل كاش " + usedCol + " لـ«" + row.name + "» = " + money(cmd.amount) + "؟" + hint)) return;
+  const shownName = (usedCol === 2 ? row.n2 : row.n1) || row.n1 || row.n2;
+  const hint = col ? "" : "\n(لو قصدك كاش 2 اضغط إلغاء وقول: «كاش 2 " + shownName + " " + cmd.amount + "»)";
+  if (!confirm(head + "تسجّل كاش " + usedCol + " لـ«" + shownName + "» = " + money(cmd.amount) + "؟" + hint)) return;
   const key = "c" + usedCol;
   const old = row[key];
   row[key] = cmd.amount;
@@ -1249,6 +1472,921 @@ async function runSectionCommand(cmd, heard) {
   renderCash();
 }
 // ===== نهاية الكاش والتقفيل =====
+
+function replaceStore(storeName, items) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    store.clear();
+    for (const it of items) store.put(it);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+// ===== قسم اليومية =====
+const DAILY_PAIRS = 7;
+const dailyTable = document.getElementById("daily-table");
+const dailyDateEl = document.getElementById("daily-date");
+const dailyTagEl = document.getElementById("daily-tag");
+const dailyGrandEl = document.getElementById("daily-grand");
+const dailyDialog = document.getElementById("daily-dialog");
+const dailyForm = document.getElementById("daily-form");
+const dailyDlgTitle = document.getElementById("daily-dlg-title");
+const dAmount = document.getElementById("d-amount");
+const dComm = document.getElementById("d-comm");
+const dCommHint = document.getElementById("d-comm-hint");
+let dailyEditing = null;
+let dailyCommManual = false;
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+}
+
+function dateLabel(str) {
+  const d = new Date(str + "T00:00:00");
+  return d.toLocaleDateString("ar-EG", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+function commissionFor(amount, rule) {
+  if (!(amount > 0)) return null;
+  if (amount < rule.first) return rule.min;
+  return rule.min + rule.unit * (Math.floor((amount - rule.first) / rule.step) + 1);
+}
+
+function currentDay() {
+  return dailyDays[dailyDays.length - 1];
+}
+
+function viewedDay() {
+  return dailyDays.find(d => d.id === dailyViewId) || currentDay();
+}
+
+function cellKey(p, r) {
+  return p + "-" + r;
+}
+
+function nextSlot(day) {
+  for (let p = 0; p < DAILY_PAIRS; p++) {
+    for (let r = 0; r < day.rows; r++) {
+      if (!day.cells[cellKey(p, r)]) return { p: p, r: r };
+    }
+  }
+  return null;
+}
+
+function lastUsedRow(day) {
+  let last = -1;
+  for (const k of Object.keys(day.cells)) {
+    const r = Number(k.split("-")[1]);
+    if (r > last) last = r;
+  }
+  return last;
+}
+
+function dailyTotals(day) {
+  const perPair = new Array(DAILY_PAIRS).fill(0);
+  const used = new Array(DAILY_PAIRS).fill(false);
+  for (const k of Object.keys(day.cells)) {
+    const p = Number(k.split("-")[0]);
+    const cell = day.cells[k];
+    if (cell && typeof cell.c === "number") {
+      perPair[p] += cell.c;
+      used[p] = true;
+    }
+  }
+  const rounded = perPair.map(round2);
+  return { perPair: rounded, used: used, grand: round2(rounded.reduce((a, b) => a + b, 0)) };
+}
+
+async function ensureDay() {
+  if (dailyDays.length) return;
+  const first = { date: todayStr(), rows: 40, cells: {} };
+  dailyDays.push(first);
+  try {
+    await putStore("daily", first);
+  } catch (e) {
+    dailyDays.pop();
+  }
+}
+
+function renderDaily() {
+  const day = viewedDay();
+  if (!day) return;
+  dailyViewId = day.id;
+  const isCurrent = day === currentDay();
+  dailyDateEl.textContent = dateLabel(day.date);
+  dailyTagEl.textContent = isCurrent ? "اليوم الحالي" : "يوم سابق";
+
+  const nxt = nextSlot(day);
+  let head = "<tr>";
+  for (let p = 0; p < DAILY_PAIRS; p++) {
+    head += '<th class="dh">سحب و إيداع</th><th class="dh dhc">عمولة</th>';
+  }
+  head += "</tr>";
+
+  let body = "";
+  for (let r = 0; r < day.rows; r++) {
+    body += "<tr>";
+    for (let p = 0; p < DAILY_PAIRS; p++) {
+      const cell = day.cells[cellKey(p, r)];
+      const isNext = nxt && nxt.p === p && nxt.r === r;
+      body += '<td class="dw' + (isNext ? " dnext" : "") + '" data-p="' + p + '" data-r="' + r + '">' +
+              (cell ? money(cell.w) : "") + "</td>";
+      body += '<td class="dc" data-p="' + p + '" data-r="' + r + '">' +
+              (cell ? money(cell.c) + (cell.manual ? '<span class="dot"></span>' : "") : "") + "</td>";
+    }
+    body += "</tr>";
+  }
+
+  const t = dailyTotals(day);
+  let foot = '<tr class="dfoot1">';
+  for (let p = 0; p < DAILY_PAIRS; p++) {
+    foot += '<td class="dsumblank"></td><td class="dsum">' + (t.used[p] ? money(t.perPair[p]) : "") + "</td>";
+  }
+  foot += '</tr><tr class="dfoot2"><td colspan="' + (DAILY_PAIRS * 2 - 1) + '" class="dgrandlabel">إجمالي كل العمولات</td>' +
+          '<td class="dgrand">' + money(t.grand) + "</td></tr>";
+
+  dailyTable.innerHTML = "<thead>" + head + "</thead><tbody>" + body + "</tbody><tfoot>" + foot + "</tfoot>";
+  dailyGrandEl.textContent = money(t.grand) + " جنيه";
+}
+
+function autoCommissionText(amountText) {
+  const w = Number(amountText);
+  const c = commissionFor(w, dailyRule);
+  return c === null ? "" : String(c);
+}
+
+function openDailyDialog(p, r) {
+  const day = viewedDay();
+  const cell = day.cells[cellKey(p, r)];
+  dailyEditing = { day: day, p: p, r: r };
+  dailyDlgTitle.textContent = "زوج " + (p + 1) + " · صف " + (r + 1);
+  dAmount.value = cell ? cell.w : "";
+  dailyCommManual = cell ? !!cell.manual : false;
+  dComm.value = cell ? cell.c : "";
+  dCommHint.textContent = dailyCommManual ? "يدوي" : "تلقائي";
+  dailyDialog.showModal();
+  dAmount.focus();
+}
+
+function openNextDailySlot() {
+  const day = viewedDay();
+  const nxt = nextSlot(day);
+  if (!nxt) {
+    alert("الورقة امتلت. اضغط «+10 صفوف» عشان تكمل.");
+    return;
+  }
+  openDailyDialog(nxt.p, nxt.r);
+}
+
+dAmount.addEventListener("input", () => {
+  if (!dailyCommManual) dComm.value = autoCommissionText(dAmount.value);
+});
+
+dComm.addEventListener("input", () => {
+  if (dComm.value.trim() === "") {
+    dailyCommManual = false;
+    dComm.value = autoCommissionText(dAmount.value);
+    dCommHint.textContent = "تلقائي";
+  } else {
+    dailyCommManual = true;
+    dCommHint.textContent = "يدوي";
+  }
+});
+
+dailyTable.addEventListener("click", (e) => {
+  const cell = e.target.closest("td.dw, td.dc");
+  if (!cell) return;
+  openDailyDialog(Number(cell.dataset.p), Number(cell.dataset.r));
+});
+
+document.getElementById("d-cancel").addEventListener("click", () => dailyDialog.close());
+
+async function saveDay(day, undo) {
+  try {
+    await putStore("daily", day);
+  } catch (e) {
+    undo();
+    alert("لم يتم الحفظ! حاول مرة أخرى.");
+  }
+}
+
+document.getElementById("d-clear").addEventListener("click", async () => {
+  if (!dailyEditing) return;
+  const { day, p, r } = dailyEditing;
+  const key = cellKey(p, r);
+  const old = day.cells[key];
+  delete day.cells[key];
+  await saveDay(day, () => { if (old) day.cells[key] = old; });
+  dailyDialog.close();
+  renderDaily();
+});
+
+dailyForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!dailyEditing) return;
+  const { day, p, r } = dailyEditing;
+  const key = cellKey(p, r);
+  const w = Number(dAmount.value);
+  if (dAmount.value.trim() === "" || !(w > 0)) {
+    alert("اكتب مبلغ صحيح.");
+    return;
+  }
+  let c, manual;
+  const typed = dComm.value.trim();
+  if (dailyCommManual && typed !== "" && Number.isFinite(Number(typed))) {
+    c = Number(typed);
+    manual = true;
+  } else {
+    c = commissionFor(w, dailyRule);
+    manual = false;
+  }
+  const old = day.cells[key];
+  day.cells[key] = { w: w, c: c, manual: manual };
+  await saveDay(day, () => { if (old) day.cells[key] = old; else delete day.cells[key]; });
+  dailyDialog.close();
+  renderDaily();
+});
+
+// ----- التنقل بين الأيام -----
+function stepDay(dir) {
+  const i = dailyDays.findIndex(d => d.id === dailyViewId);
+  const j = i + dir;
+  if (j < 0 || j >= dailyDays.length) return;
+  dailyViewId = dailyDays[j].id;
+  renderDaily();
+}
+
+document.getElementById("daily-prev").addEventListener("click", () => stepDay(-1));
+document.getElementById("daily-next").addEventListener("click", () => stepDay(1));
+
+document.getElementById("daily-more-rows").addEventListener("click", async () => {
+  const day = viewedDay();
+  day.rows += 10;
+  await saveDay(day, () => { day.rows -= 10; });
+  renderDaily();
+});
+
+document.getElementById("daily-new-day").addEventListener("click", async () => {
+  const cur = currentDay();
+  const used = Object.keys(cur.cells).length;
+  const msg = used
+    ? "تبدأ يوم جديد؟ اليوم الحالي هيتحفظ في الأيام السابقة، والخطوط هتنتقل لليوم الجديد."
+    : "اليوم الحالي لسه فاضي. تبدأ يوم جديد برضه؟";
+  if (!confirm(msg)) return;
+  const fresh = { date: todayStr(), rows: cur.rows, cells: {} };
+  dailyDays.push(fresh);
+  try {
+    await putStore("daily", fresh);
+  } catch (err) {
+    dailyDays.pop();
+    alert("لم يتم الحفظ! حاول مرة أخرى.");
+    return;
+  }
+  dailyViewId = fresh.id;
+  renderDaily();
+});
+
+// ----- الأيام السابقة -----
+const dailyHistoryDialog = document.getElementById("daily-history-dialog");
+const dailyHistoryList = document.getElementById("daily-history-list");
+
+document.getElementById("daily-history").addEventListener("click", () => {
+  let html = "";
+  for (const d of dailyDays.slice().reverse()) {
+    const t = dailyTotals(d);
+    html += '<button type="button" class="hist-item" data-id="' + d.id + '"><span>' + esc(dateLabel(d.date)) +
+            '</span><strong>' + money(t.grand) + "</strong></button>";
+  }
+  dailyHistoryList.innerHTML = html;
+  dailyHistoryDialog.showModal();
+});
+
+dailyHistoryList.addEventListener("click", (e) => {
+  const b = e.target.closest("button.hist-item");
+  if (!b) return;
+  dailyViewId = Number(b.dataset.id);
+  dailyHistoryDialog.close();
+  renderDaily();
+});
+
+document.getElementById("daily-history-close").addEventListener("click", () => dailyHistoryDialog.close());
+
+// ----- قاعدة العمولة -----
+const ruleDialog = document.getElementById("rule-dialog");
+const ruleForm = document.getElementById("rule-form");
+
+document.getElementById("daily-rule-btn").addEventListener("click", () => {
+  document.getElementById("r-min").value = dailyRule.min;
+  document.getElementById("r-unit").value = dailyRule.unit;
+  document.getElementById("r-first").value = dailyRule.first;
+  document.getElementById("r-step").value = dailyRule.step;
+  ruleDialog.showModal();
+});
+
+document.getElementById("rule-cancel").addEventListener("click", () => ruleDialog.close());
+
+ruleForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const vals = {
+    min: Number(document.getElementById("r-min").value),
+    unit: Number(document.getElementById("r-unit").value),
+    first: Number(document.getElementById("r-first").value),
+    step: Number(document.getElementById("r-step").value)
+  };
+  if (!(vals.min > 0) || !(vals.unit > 0) || !(vals.first > 0) || !(vals.step > 0)) {
+    alert("كل الأرقام لازم تكون أكبر من صفر.");
+    return;
+  }
+  const old = Object.assign({}, dailyRule);
+  Object.assign(dailyRule, vals);
+  try {
+    await putStore("settings", dailyRule);
+  } catch (err) {
+    Object.assign(dailyRule, old);
+    alert("لم يتم الحفظ! حاول مرة أخرى.");
+  }
+  ruleDialog.close();
+});
+
+// ----- الصوت في اليومية -----
+function parseDailyVoice(text) {
+  const clean = text
+    .replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d))
+    .replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
+  const tokens = clean.split(/\s+/).filter(Boolean).map(t => ({ orig: t, n: normAr(t) }));
+  const iC = tokens.findIndex(t => t.n === "عموله" || t.n === "العموله");
+  const left = (iC === -1 ? tokens : tokens.slice(0, iC)).map(t => t.orig).join(" ");
+  const right = iC === -1 ? "" : tokens.slice(iC + 1).map(t => t.orig).join(" ");
+  const w = parseVoice(left).amount;
+  const c = right ? parseVoice(right).amount : 0;
+  return { amount: w, commission: c > 0 ? c : null };
+}
+
+async function runDailyVoice(dv, heard) {
+  const head = "سمعتك بتقول: " + heard + "\n\n";
+  const day = viewedDay();
+  const slot = nextSlot(day);
+  if (!slot) {
+    alert(head + "الورقة امتلت. اضغط «+10 صفوف» الأول.");
+    return;
+  }
+  const manual = dv.commission !== null;
+  const c = manual ? dv.commission : commissionFor(dv.amount, dailyRule);
+  const msg = head + "تسجّل " + money(dv.amount) + " ← عمولة " + money(c) + (manual ? " (يدوي)" : "") +
+              " في زوج " + (slot.p + 1) + " · صف " + (slot.r + 1) + "؟";
+  if (!confirm(msg)) return;
+  const key = cellKey(slot.p, slot.r);
+  day.cells[key] = { w: dv.amount, c: c, manual: manual };
+  await saveDay(day, () => { delete day.cells[key]; });
+  renderDaily();
+}
+// ===== نهاية اليومية =====
+
+// ===== قسم الخطوط =====
+const linesBody = document.getElementById("lines-body");
+const lineSearch = document.getElementById("line-search");
+let selectedLine = null;
+
+const STATUS_ORDER = { overdue: 0, late: 1, ok: 2, done: 3 };
+
+function toLatinDigits(s) {
+  return s
+    .replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d))
+    .replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d));
+}
+
+function lineByN(n) {
+  return lines.find(l => l.n === n);
+}
+
+function activeAssign(n) {
+  return assigns.find(a => a.lineN === n && a.status === "active");
+}
+
+function holderLabel(a) {
+  const row = cashRows.find(r => r.id === a.holderId);
+  if (row) {
+    const nm = a.holderCol === 2 ? row.n2 : row.n1;
+    if (nm) return nm + " · كاش " + a.holderCol;
+  }
+  return a.holderLabel || "—";
+}
+
+function sumAmounts(list) {
+  return round2(list.reduce((t, e) => t + e.amount, 0));
+}
+
+function planInfo(a, dayId) {
+  const entries = a.entries || [];
+  const total = sumAmounts(entries);
+  const dayIndex = Math.max(1, dayId - a.startDay + 1);
+  const Q = a.target / a.days;
+  const before = sumAmounts(entries.filter(e => e.day < dayId));
+  const today = sumAmounts(entries.filter(e => e.day === dayId));
+  const remaining = Math.max(0, round2(a.target - total));
+  let requiredToday;
+  if (a.mode === "fixed") requiredToday = Math.min(Q, Math.max(0, a.target - before));
+  else if (dayIndex >= a.days) requiredToday = Math.max(0, a.target - before);
+  else requiredToday = Math.max(0, Math.min(a.target, Q * dayIndex) - before);
+  requiredToday = round2(requiredToday);
+  const passed = Math.min(dayIndex - 1, a.days);
+  const deficitBefore = Math.max(0, round2(Q * passed - before));
+  const perDay = [];
+  for (let i = 0; i < a.days; i++) {
+    const id = a.startDay + i;
+    perDay.push(sumAmounts(entries.filter(e => e.day === id)));
+  }
+  let status = "ok";
+  if (total >= a.target) status = "done";
+  else if (dayIndex > a.days) status = "overdue";
+  else if (deficitBefore > 0) status = "late";
+  return {
+    total: total, remaining: remaining, dayIndex: dayIndex, Q: Q, before: before, today: today,
+    requiredToday: requiredToday, todayLeft: Math.max(0, round2(requiredToday - today)),
+    deficitBefore: deficitBefore, perDay: perDay, status: status
+  };
+}
+
+function statusChip(p) {
+  if (p.status === "done") return '<span class="lchip done">مكتمل</span>';
+  if (p.status === "overdue") return '<span class="lchip overdue">انتهت المدة · ناقص ' + money(p.remaining) + "</span>";
+  if (p.status === "late") return '<span class="lchip late">متأخر ' + money(p.deficitBefore) + "</span>";
+  return '<span class="lchip ok">في الميعاد</span>';
+}
+
+function searchLines(q) {
+  const t = toLatinDigits(q.trim());
+  if (!t) return [];
+  if (/^\d+$/.test(t)) {
+    if (t.length <= 3) {
+      const hit = lines.filter(l => String(l.n) === t);
+      if (hit.length) return hit;
+    }
+    return lines.filter(l => (l.phone || "").includes(t)).slice(0, 8);
+  }
+  const k = normAr(t).replace(/\*/g, "");
+  return lines.filter(l => normAr(l.name || "").replace(/\*/g, "").includes(k)).slice(0, 8);
+}
+
+function timeLabel(ts) {
+  return new Date(ts).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
+}
+
+function lineCardHtml(l) {
+  const a = activeAssign(l.n);
+  let h = '<div class="lcard"><div class="lhead"><div><div class="lsmall">خط رقم</div>' +
+    '<div class="lnum">' + l.n + ' <span class="lname">· ' + esc(l.name || "") + "</span></div>" +
+    '<div class="lphone">' + esc(l.phone || "") + "</div></div>" +
+    '<div class="lbtns"><button type="button" class="icon-btn" data-act="line-edit" data-n="' + l.n + '">تعديل</button>' +
+    '<button type="button" class="icon-btn" data-act="line-close">×</button></div></div>';
+
+  if (a) {
+    const p = planInfo(a, currentDay().id);
+    h += '<div class="lholder"><span>مسجّل على: <b>' + esc(holderLabel(a)) + "</b></span>" +
+         '<button type="button" class="icon-btn" data-act="plan-edit" data-aid="' + a.id + '">تعديل الخطة</button></div>';
+    h += '<div class="lstatus">' + statusChip(p) + "</div>";
+    h += '<div class="lprog"><strong>' + money(p.total) + "</strong><span>من " + money(a.target) + "</span></div>";
+    h += '<div class="lbars">';
+    for (let i = 0; i < a.days; i++) {
+      let cls = "future";
+      if (i < p.dayIndex - 1) cls = p.perDay[i] >= p.Q ? "ok" : "short";
+      else if (i === p.dayIndex - 1) cls = "now";
+      const pct = Math.max(0, Math.min(100, (p.perDay[i] / p.Q) * 100));
+      h += '<div class="seg ' + cls + '"><div style="width:' + pct + '%"></div></div>';
+    }
+    h += '</div><div class="lbarlabels">';
+    for (let i = 0; i < a.days; i++) {
+      const isFuture = i > p.dayIndex - 1;
+      h += "<div>يوم " + (i + 1) + (i === p.dayIndex - 1 ? " (النهارده)" : "") + "<br><span>" +
+           (isFuture ? "—" : money(p.perDay[i]) + " / " + money(p.Q)) + "</span></div>";
+    }
+    h += "</div>";
+    if (p.status !== "done") {
+      h += '<div class="lnote">مطلوب النهارده: <b>' + money(p.requiredToday) + "</b> · باقي: <b>" + money(p.todayLeft) + "</b>" +
+           (a.mode === "fixed" ? " · وضع ثابت" : "") + "</div>";
+      if (p.deficitBefore > 0 && a.mode !== "fixed") {
+        h += '<div class="lnote warn">فيه ' + money(p.deficitBefore) + " ناقصين من الأيام اللي فاتت اترحّلوا لمطلوب النهارده.</div>";
+      }
+    }
+    const list = (a.entries || []).map((e, i) => ({ e: e, i: i })).reverse();
+    h += '<div class="lentries">';
+    if (!list.length) h += '<div class="lempty">لسه مفيش تحصيلات</div>';
+    for (const it of list) {
+      h += '<div class="lentry"><span class="etime">يوم ' + (it.e.day - a.startDay + 1) + " · " + timeLabel(it.e.ts) + "</span>" +
+           '<span class="eamt' + (it.e.amount < 0 ? " neg" : "") + '">' + money(it.e.amount) + "</span>" +
+           '<span class="enote">' + esc(it.e.note || "") + "</span>" +
+           '<button type="button" class="icon-btn" data-act="entry-edit" data-aid="' + a.id + '" data-i="' + it.i + '">تعديل</button></div>';
+    }
+    h += '</div><div class="lactions"><button type="button" class="main-btn" data-act="entry-add" data-aid="' + a.id + '">+ تحصيل</button></div>';
+  } else {
+    h += '<div class="lstatus"><span class="lchip free">غير مخصص</span></div>' +
+         '<div class="lactions"><button type="button" class="main-btn" data-act="assign" data-n="' + l.n + '">تخصيص على حامل</button></div>';
+    const past = assigns.filter(a => a.lineN === l.n && a.status !== "active").slice(-3).reverse();
+    if (past.length) {
+      h += '<div class="lhist">';
+      for (const a of past) {
+        h += "<div>" + esc(holderLabel(a)) + " · " + money(sumAmounts(a.entries || [])) + " من " + money(a.target) +
+             (a.status === "done" ? " ✓" : " (اتقفلت)") + "</div>";
+      }
+      h += "</div>";
+    }
+  }
+  return h + "</div>";
+}
+
+function activeListHtml() {
+  const act = assigns.filter(a => a.status === "active");
+  if (!act.length) {
+    return lines.length
+      ? '<div class="lempty">مفيش خطوط نشطة دلوقتي. دوّر على خط بالرقم وخصّصه.</div>'
+      : '<div class="lempty">لسه مفيش خطوط. اضغط «استيراد» وحمّل ملف الخطوط، أو أضف خط بإيدك.</div>';
+  }
+  const dayId = currentDay().id;
+  const items = act.map(a => ({ a: a, p: planInfo(a, dayId) }))
+    .sort((x, y) => (STATUS_ORDER[x.p.status] - STATUS_ORDER[y.p.status]) || (y.p.deficitBefore - x.p.deficitBefore));
+  const needed = round2(items.reduce((t, it) => t + it.p.requiredToday, 0));
+  const got = round2(items.reduce((t, it) => t + it.p.today, 0));
+  let h = '<div class="lsum"><div><span>مطلوب النهارده من كل الخطوط</span><strong>' + money(needed) +
+          "</strong></div><div><span>اتحصّل النهارده</span><strong>" + money(got) + "</strong></div></div>" +
+          '<div class="lsection">الخطوط النشطة (' + items.length + ")</div>";
+  for (const it of items) {
+    const l = lineByN(it.a.lineN);
+    h += '<button type="button" class="lrow" data-act="open-line" data-n="' + it.a.lineN + '">' +
+         '<span class="rnum">' + it.a.lineN + "</span><span class=\"rname\">" + esc(holderLabel(it.a)) + "</span>" +
+         '<span class="rprog ' + it.p.status + '">' + money(it.p.total) + " / " + money(it.a.target) + "</span></button>";
+  }
+  return h;
+}
+
+function renderLines() {
+  const q = lineSearch.value.trim();
+  const res = q ? searchLines(q) : [];
+  if (q && res.length === 1) selectedLine = res[0].n;
+  let h = "";
+  if (q && res.length === 0) h += '<div class="lempty">مفيش خط بالرقم أو الاسم ده.</div>';
+  if (q && res.length > 1) {
+    h += '<div class="lresults">';
+    for (const l of res) {
+      h += '<button type="button" class="lres" data-act="open-line" data-n="' + l.n + '"><b>' + l.n + "</b><span>" +
+           esc(l.name || "") + "</span><small>" + esc(l.phone || "") + "</small></button>";
+    }
+    h += "</div>";
+  }
+  const sel = selectedLine !== null ? lineByN(selectedLine) : null;
+  if (sel && (!q || res.length <= 1 || res.some(l => l.n === sel.n))) h += lineCardHtml(sel);
+  h += activeListHtml();
+  linesBody.innerHTML = h;
+}
+
+lineSearch.addEventListener("input", () => {
+  selectedLine = null;
+  renderLines();
+});
+
+// ----- نافذة التخصيص / تعديل الخطة -----
+const assignDialog = document.getElementById("assign-dialog");
+const assignForm = document.getElementById("assign-form");
+const assignTitle = document.getElementById("assign-title");
+const laHolder = document.getElementById("la-holder");
+const laTarget = document.getElementById("la-target");
+const laDays = document.getElementById("la-days");
+const laMode = document.getElementById("la-mode");
+const laEnd = document.getElementById("la-end");
+let assignEditing = null;
+
+function holderOptionsHtml(selectedValue) {
+  let h = "";
+  for (const r of cashRows) {
+    for (const c of [1, 2]) {
+      const nm = c === 1 ? r.n1 : r.n2;
+      if (!nm) continue;
+      const v = r.id + ":" + c;
+      h += '<option value="' + v + '"' + (v === selectedValue ? " selected" : "") + ">" + esc(nm) + " · كاش " + c + "</option>";
+    }
+  }
+  return h;
+}
+
+function openAssignDialog(a, lineN) {
+  assignEditing = a ? { a: a } : { lineN: lineN };
+  assignTitle.textContent = a ? "تعديل الخطة · خط " + a.lineN : "تخصيص خط " + lineN;
+  laHolder.innerHTML = holderOptionsHtml(a ? a.holderId + ":" + a.holderCol : "");
+  laTarget.value = a ? a.target : lineDefaults.target;
+  laDays.value = a ? a.days : lineDefaults.days;
+  laMode.value = a ? a.mode : "carry";
+  laEnd.hidden = !a;
+  assignDialog.showModal();
+}
+
+document.getElementById("la-cancel").addEventListener("click", () => assignDialog.close());
+
+laEnd.addEventListener("click", async () => {
+  if (!assignEditing || !assignEditing.a) return;
+  const a = assignEditing.a;
+  if (!confirm("تقفل خطة الخط " + a.lineN + " دلوقتي؟ التحصيلات هتفضل محفوظة.")) return;
+  const old = a.status;
+  a.status = "closed";
+  try {
+    await putStore("assigns", a);
+  } catch (e) {
+    a.status = old;
+    alert("لم يتم الحفظ! حاول مرة أخرى.");
+  }
+  assignDialog.close();
+  renderLines();
+});
+
+assignForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!assignEditing) return;
+  const target = Number(laTarget.value);
+  const days = Math.floor(Number(laDays.value));
+  const [hid, hcol] = laHolder.value.split(":").map(Number);
+  if (!hid || !(target > 0) || !(days >= 1)) {
+    alert("اختار الحامل واكتب المستهدف وعدد الأيام صح.");
+    return;
+  }
+  const row = cashRows.find(r => r.id === hid);
+  const label = row ? ((hcol === 2 ? row.n2 : row.n1) + " · كاش " + hcol) : "";
+  if (assignEditing.a) {
+    const a = assignEditing.a;
+    const backup = JSON.stringify(a);
+    if (a.holderId !== hid || a.holderCol !== hcol) {
+      a.history = a.history || [];
+      a.history.push({ ts: Date.now(), from: a.holderLabel, to: label });
+    }
+    a.holderId = hid; a.holderCol = hcol; a.holderLabel = label;
+    a.target = target; a.days = days; a.mode = laMode.value;
+    refreshStatus(a);
+    try {
+      await putStore("assigns", a);
+    } catch (err) {
+      Object.assign(a, JSON.parse(backup));
+      alert("لم يتم الحفظ! حاول مرة أخرى.");
+    }
+  } else {
+    const n = assignEditing.lineN;
+    if (activeAssign(n)) {
+      alert("الخط ده متخصص بالفعل.");
+      return;
+    }
+    const day = currentDay();
+    const a = {
+      lineN: n, holderId: hid, holderCol: hcol, holderLabel: label, target: target, days: days,
+      mode: laMode.value, startDay: day.id, startDate: day.date, status: "active", entries: [], history: []
+    };
+    assigns.push(a);
+    try {
+      await putStore("assigns", a);
+    } catch (err) {
+      assigns.pop();
+      alert("لم يتم الحفظ! حاول مرة أخرى.");
+    }
+  }
+  assignDialog.close();
+  renderLines();
+});
+
+function refreshStatus(a) {
+  if (a.status === "closed") return;
+  a.status = sumAmounts(a.entries || []) >= a.target ? "done" : "active";
+}
+
+// ----- نافذة التحصيل -----
+const entryDialog = document.getElementById("entry-dialog");
+const entryForm = document.getElementById("entry-form");
+const entryTitle = document.getElementById("entry-title");
+const leAmount = document.getElementById("le-amount");
+const leNote = document.getElementById("le-note");
+const leDelete = document.getElementById("le-delete");
+let entryEditing = null;
+
+function openEntryDialog(a, idx) {
+  entryEditing = { a: a, idx: idx };
+  const e = idx >= 0 ? a.entries[idx] : null;
+  entryTitle.textContent = e ? "تعديل تحصيل · خط " + a.lineN : "تحصيل جديد · خط " + a.lineN;
+  leAmount.value = e ? e.amount : "";
+  leNote.value = e ? (e.note || "") : "";
+  leDelete.hidden = !e;
+  entryDialog.showModal();
+  leAmount.focus();
+}
+
+async function saveAssign(a, undo) {
+  try {
+    await putStore("assigns", a);
+  } catch (e) {
+    undo();
+    alert("لم يتم الحفظ! حاول مرة أخرى.");
+  }
+}
+
+async function addLineEntry(a, amount, note) {
+  const snapshot = JSON.stringify(a);
+  a.entries.push({ day: currentDay().id, amount: amount, ts: Date.now(), note: note || "" });
+  refreshStatus(a);
+  await saveAssign(a, () => Object.assign(a, JSON.parse(snapshot)));
+}
+
+document.getElementById("le-cancel").addEventListener("click", () => entryDialog.close());
+
+leDelete.addEventListener("click", async () => {
+  if (!entryEditing || entryEditing.idx < 0) return;
+  if (!confirm("تحذف التحصيل ده؟")) return;
+  const a = entryEditing.a;
+  const snapshot = JSON.stringify(a);
+  a.entries.splice(entryEditing.idx, 1);
+  refreshStatus(a);
+  await saveAssign(a, () => Object.assign(a, JSON.parse(snapshot)));
+  entryDialog.close();
+  renderLines();
+});
+
+entryForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!entryEditing) return;
+  const amount = Number(leAmount.value);
+  if (leAmount.value.trim() === "" || !Number.isFinite(amount) || amount === 0) {
+    alert("اكتب مبلغ صحيح (ممكن يبقى بالسالب للتصحيح).");
+    return;
+  }
+  const a = entryEditing.a;
+  const note = leNote.value.trim();
+  if (entryEditing.idx >= 0) {
+    const snapshot = JSON.stringify(a);
+    a.entries[entryEditing.idx].amount = amount;
+    a.entries[entryEditing.idx].note = note;
+    refreshStatus(a);
+    await saveAssign(a, () => Object.assign(a, JSON.parse(snapshot)));
+  } else {
+    await addLineEntry(a, amount, note);
+  }
+  entryDialog.close();
+  renderLines();
+});
+
+// ----- إضافة / تعديل خط -----
+const lineDialog = document.getElementById("line-dialog");
+const lineForm = document.getElementById("line-form");
+const lmN = document.getElementById("lm-n");
+const lmName = document.getElementById("lm-name");
+const lmPhone = document.getElementById("lm-phone");
+let lineEditing = null;
+
+function openLineEdit(n) {
+  const l = n !== null ? lineByN(n) : null;
+  lineEditing = l;
+  document.getElementById("line-dlg-title").textContent = l ? "تعديل خط " + l.n : "خط جديد";
+  lmN.value = l ? l.n : (lines.reduce((m, x) => Math.max(m, x.n), 0) + 1);
+  lmN.readOnly = !!l;
+  lmName.value = l ? l.name : "";
+  lmPhone.value = l ? l.phone : "";
+  lineDialog.showModal();
+  lmName.focus();
+}
+
+document.getElementById("line-add-btn").addEventListener("click", () => openLineEdit(null));
+document.getElementById("lm-cancel").addEventListener("click", () => lineDialog.close());
+
+lineForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const n = Math.floor(Number(lmN.value));
+  const name = lmName.value.trim();
+  const phone = toLatinDigits(lmPhone.value.trim());
+  if (!(n >= 1) || !name) {
+    alert("اكتب رقم الخط والاسم.");
+    return;
+  }
+  if (!lineEditing && lineByN(n)) {
+    alert("رقم الخط ده موجود بالفعل.");
+    return;
+  }
+  const rec = { n: n, name: name, phone: phone };
+  const old = lineEditing ? Object.assign({}, lineEditing) : null;
+  if (lineEditing) Object.assign(lineEditing, rec);
+  else { lines.push(rec); lines.sort((a, b) => a.n - b.n); }
+  try {
+    await putStore("lines", rec);
+  } catch (err) {
+    if (lineEditing) Object.assign(lineEditing, old);
+    else lines.splice(lines.indexOf(rec), 1);
+    alert("لم يتم الحفظ! حاول مرة أخرى.");
+  }
+  lineDialog.close();
+  selectedLine = n;
+  renderLines();
+});
+
+// ----- استيراد الخطوط من ملف -----
+const lineImportBtn = document.getElementById("line-import-btn");
+const lineImportFile = document.getElementById("line-import-file");
+
+function putMany(storeName, items) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeName, "readwrite");
+    const store = tx.objectStore(storeName);
+    for (const it of items) store.put(it);
+    tx.oncomplete = () => { resolve(); markChanged(); };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+lineImportBtn.addEventListener("click", () => lineImportFile.click());
+
+lineImportFile.addEventListener("change", (ev) => {
+  const file = ev.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (event) => {
+    restoring = true;
+    try {
+      let arr = JSON.parse(event.target.result);
+      if (!Array.isArray(arr) && arr && Array.isArray(arr.lines)) arr = arr.lines;
+      if (!Array.isArray(arr)) throw new Error("bad");
+      const clean = [];
+      for (const x of arr) {
+        const n = Math.floor(Number(x.n));
+        if (!(n >= 1) || !x.name) continue;
+        clean.push({ n: n, name: String(x.name), phone: toLatinDigits(String(x.phone || "")) });
+      }
+      if (!clean.length) throw new Error("empty");
+      await putMany("lines", clean);
+      let added = 0, updated = 0;
+      for (const c of clean) {
+        const ex = lineByN(c.n);
+        if (ex) { Object.assign(ex, c); updated++; } else { lines.push(c); added++; }
+      }
+      lines.sort((a, b) => a.n - b.n);
+      alert("تم استيراد الخطوط: جديد " + added + "، متحدّث " + updated + ".");
+      renderLines();
+    } catch (err) {
+      alert("الملف ده مش ملف خطوط صالح.");
+    } finally {
+      restoring = false;
+      lineImportFile.value = "";
+    }
+  };
+  reader.readAsText(file);
+});
+
+linesBody.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-act]");
+  if (!b) return;
+  const act = b.dataset.act;
+  const n = Number(b.dataset.n);
+  const a = b.dataset.aid ? assigns.find(x => x.id === Number(b.dataset.aid)) : null;
+  if (act === "open-line") { selectedLine = n; renderLines(); }
+  else if (act === "line-close") { selectedLine = null; lineSearch.value = ""; renderLines(); }
+  else if (act === "line-edit") openLineEdit(n);
+  else if (act === "assign") openAssignDialog(null, n);
+  else if (act === "plan-edit" && a) openAssignDialog(a);
+  else if (act === "entry-add" && a) openEntryDialog(a, -1);
+  else if (act === "entry-edit" && a) openEntryDialog(a, Number(b.dataset.i));
+});
+
+// ----- الصوت للخطوط -----
+function parseLineCommand(text, startsOnly) {
+  const clean = toLatinDigits(text);
+  const tokens = clean.split(/\s+/).filter(Boolean).map(t => ({ orig: t, n: normAr(t) }));
+  const i = tokens.findIndex((t, idx) => (t.n === "خط" || t.n === "الخط") && idx + 1 < tokens.length && /^\d+$/.test(tokens[idx + 1].n));
+  if (i === -1) return null;
+  if (startsOnly && i !== 0) return null;
+  const n = Number(tokens[i + 1].n);
+  const rest = tokens.filter((t, idx) => idx !== i && idx !== i + 1).map(t => t.orig).join(" ");
+  return { n: n, amount: rest ? parseVoice(rest).amount : 0 };
+}
+
+async function runLineCommand(cmd, heard) {
+  const head = "سمعتك بتقول: " + heard + "\n\n";
+  showView("lines");
+  lineSearch.value = String(cmd.n);
+  selectedLine = null;
+  const l = lineByN(cmd.n);
+  renderLines();
+  if (!l) {
+    alert(head + "مفيش خط برقم " + cmd.n + ".");
+    return;
+  }
+  if (!(cmd.amount > 0)) return;
+  const a = activeAssign(cmd.n);
+  if (!a) {
+    alert(head + "الخط " + cmd.n + " مش متخصص على حامل. خصّصه الأول.");
+    return;
+  }
+  if (!confirm(head + "تسجّل تحصيل " + money(cmd.amount) + " على خط " + cmd.n + " (" + holderLabel(a) + ")؟")) return;
+  await addLineEntry(a, cmd.amount, "");
+  renderLines();
+}
+// ===== نهاية الخطوط =====
 
 const btnMic = document.getElementById("btn-mic");
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1285,6 +2423,20 @@ if (SpeechRecognition) {
       return;
     }
 
+    const lineCmd = parseLineCommand(text, currentView !== "lines");
+    if (lineCmd) {
+      runLineCommand(lineCmd, text);
+      return;
+    }
+
+    if (currentView === "daily") {
+      const dv = parseDailyVoice(text);
+      if (dv.amount > 0) {
+        runDailyVoice(dv, text);
+        return;
+      }
+    }
+
     const res = parseVoice(text);
     if (res.book && res.book !== currentBook) switchBook(res.book);
     openAddDialog(res.name, res.amount, text);
@@ -1317,6 +2469,13 @@ async function start() {
     for (const p of all) data[p.book].push(p);
     cashRows = await loadCash();
     closing = await loadClosing();
+    dailyRule = await loadSetting("dailyRule", dailyRule);
+    lineDefaults = await loadSetting("lineDefaults", lineDefaults);
+    dailyDays = (await loadAllFrom("daily")).sort((a, b) => a.id - b.id);
+    lines = (await loadAllFrom("lines")).sort((a, b) => a.n - b.n);
+    assigns = await loadAllFrom("assigns");
+    await ensureDay();
+    dailyViewId = currentDay() ? currentDay().id : null;
     if (navigator.storage && navigator.storage.persist) {
       navigator.storage.persist();
     }
@@ -1366,8 +2525,13 @@ function downloadBackup() {
     date: getDateString(),
     in: data.in.filter(p => p.ops.length > 0),
     out: data.out.filter(p => p.ops.length > 0),
-    cash: cashRows.map(r => ({ name: r.name, c1: r.c1, c2: r.c2, order: r.order })),
-    closing: { treasury: closing.treasury, balance: closing.balance }
+    cash: cashRows.map(r => ({ name: r.n1, n1: r.n1, n2: r.n2, c1: r.c1, c2: r.c2, order: r.order })),
+    closing: { treasury: closing.treasury, balance: closing.balance },
+    daily: dailyDays,
+    lines: lines,
+    assigns: assigns,
+    dailyRule: { min: dailyRule.min, unit: dailyRule.unit, first: dailyRule.first, step: dailyRule.step },
+    lineDefaults: { target: lineDefaults.target, days: lineDefaults.days }
   };
   const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
   const url = URL.createObjectURL(blob);

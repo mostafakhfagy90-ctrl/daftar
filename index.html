@@ -18,6 +18,7 @@
     <div class="export-btns">
       <button id="btn-export-excel" class="icon-btn">إكسيل 📊</button>
       <button id="btn-export-pdf" class="icon-btn">PDF 📄</button>
+      <button id="btn-export-all" class="icon-btn">الكل 🗂️</button>
       <button id="btn-backup" class="icon-btn">نسخة احتياطية 💾</button>
       <button id="btn-import" class="icon-btn">استعادة 📥</button>
       <input type="file" id="file-import" accept=".json" style="display: none;">
@@ -30,6 +31,8 @@
     <button id="tab-in" class="tab active">الداخل</button>
     <button id="tab-out" class="tab">الخارج</button>
     <button id="tab-cash" class="tab">الكاش</button>
+    <button id="tab-daily" class="tab">اليومية</button>
+    <button id="tab-lines" class="tab">الخطوط</button>
     <button id="tab-closing" class="tab">التقفيل</button>
   </div>
 
@@ -83,6 +86,37 @@
         <strong id="c-diff">0 جنيه</strong>
       </div>
     </div>
+  </div>
+
+  <div id="daily-view" class="section-view" hidden>
+    <div class="daily-top">
+      <button id="daily-prev" class="icon-btn">السابق</button>
+      <div class="daily-title"><div id="daily-date"></div><small id="daily-tag"></small></div>
+      <button id="daily-next" class="icon-btn">التالي</button>
+    </div>
+    <div class="daily-tools">
+      <button id="daily-history" class="icon-btn">الأيام</button>
+      <button id="daily-rule-btn" class="icon-btn">قاعدة العمولة</button>
+      <button id="daily-more-rows" class="icon-btn">+10 صفوف</button>
+      <button id="daily-new-day" class="icon-btn strong">يوم جديد</button>
+    </div>
+    <div class="table-wrap daily-wrap">
+      <table id="daily-table"></table>
+    </div>
+    <div class="total-bar daily-bar">
+      <span>إجمالي عمولات اليوم</span>
+      <strong id="daily-grand">0 جنيه</strong>
+    </div>
+  </div>
+
+  <div id="lines-view" class="section-view" hidden>
+    <div class="lines-top">
+      <input id="line-search" type="search" inputmode="search" autocomplete="off" placeholder="رقم الخط أو آخر أرقام التليفون أو الاسم">
+      <button id="line-add-btn" class="icon-btn">+ خط</button>
+      <button id="line-import-btn" class="icon-btn">استيراد</button>
+      <input id="line-import-file" type="file" accept=".json,application/json" hidden>
+    </div>
+    <div id="lines-body" class="lines-body"></div>
   </div>
 
   <div class="actions">
@@ -168,6 +202,109 @@
         <button type="submit" class="main-btn">حفظ</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="daily-dialog">
+    <form id="daily-form">
+      <h2 id="daily-dlg-title">خانة</h2>
+      <label for="d-amount">سحب و إيداع</label>
+      <input id="d-amount" type="number" inputmode="decimal" step="any">
+      <label for="d-comm">العمولة <small id="d-comm-hint">تلقائي</small></label>
+      <input id="d-comm" type="number" inputmode="decimal" step="any">
+      <div class="dialog-btns">
+        <button type="button" id="d-cancel" class="icon-btn">إلغاء</button>
+        <button type="button" id="d-clear" class="icon-btn danger">مسح</button>
+        <button type="submit" class="main-btn">حفظ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="daily-history-dialog">
+    <h2>الأيام السابقة</h2>
+    <div id="daily-history-list" class="hist-list"></div>
+    <div class="dialog-btns"><button type="button" id="daily-history-close" class="icon-btn">إغلاق</button></div>
+  </dialog>
+
+  <dialog id="rule-dialog">
+    <form id="rule-form">
+      <h2>قاعدة العمولة</h2>
+      <label for="r-min">أقل عمولة</label>
+      <input id="r-min" type="number" step="any">
+      <label for="r-first">أول شريحة بتبدأ من مبلغ</label>
+      <input id="r-first" type="number" step="any">
+      <label for="r-step">طول كل شريحة</label>
+      <input id="r-step" type="number" step="any">
+      <label for="r-unit">كل شريحة بتزوّد</label>
+      <input id="r-unit" type="number" step="any">
+      <p class="hint">التغيير بيتطبق على الأرقام الجديدة بس.</p>
+      <div class="dialog-btns">
+        <button type="button" id="rule-cancel" class="icon-btn">إلغاء</button>
+        <button type="submit" class="main-btn">حفظ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="assign-dialog">
+    <form id="assign-form">
+      <h2 id="assign-title">تخصيص</h2>
+      <label for="la-holder">الحامل (من ورقة الكاش)</label>
+      <select id="la-holder"></select>
+      <label for="la-target">المستهدف</label>
+      <input id="la-target" type="number" inputmode="decimal" step="any">
+      <label for="la-days">عدد الأيام</label>
+      <input id="la-days" type="number" inputmode="numeric" step="1" min="1">
+      <label for="la-mode">توزيع الناقص</label>
+      <select id="la-mode">
+        <option value="carry">يترحّل لليوم اللي بعده</option>
+        <option value="fixed">ثابت كل يوم</option>
+      </select>
+      <div class="dialog-btns">
+        <button type="button" id="la-cancel" class="icon-btn">إلغاء</button>
+        <button type="button" id="la-end" class="icon-btn danger">إنهاء الخطة</button>
+        <button type="submit" class="main-btn">حفظ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="entry-dialog">
+    <form id="entry-form">
+      <h2 id="entry-title">تحصيل</h2>
+      <label for="le-amount">المبلغ (بالسالب للتصحيح)</label>
+      <input id="le-amount" type="number" inputmode="decimal" step="any">
+      <label for="le-note">ملاحظة (اختياري)</label>
+      <input id="le-note" autocomplete="off">
+      <div class="dialog-btns">
+        <button type="button" id="le-cancel" class="icon-btn">إلغاء</button>
+        <button type="button" id="le-delete" class="icon-btn danger">حذف</button>
+        <button type="submit" class="main-btn">حفظ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="line-dialog">
+    <form id="line-form">
+      <h2 id="line-dlg-title">خط</h2>
+      <label for="lm-n">رقم الخط</label>
+      <input id="lm-n" type="number" inputmode="numeric" step="1" min="1">
+      <label for="lm-name">الاسم</label>
+      <input id="lm-name" autocomplete="off">
+      <label for="lm-phone">رقم التليفون</label>
+      <input id="lm-phone" inputmode="tel" autocomplete="off">
+      <div class="dialog-btns">
+        <button type="button" id="lm-cancel" class="icon-btn">إلغاء</button>
+        <button type="submit" class="main-btn">حفظ</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="export-all-dialog">
+    <h2>تصدير كل التابات</h2>
+    <p class="hint">ملف واحد فيه الداخل والخارج والكاش واليومية والخطوط والتقفيل.</p>
+    <div class="dialog-btns">
+      <button type="button" id="ex-excel-all" class="main-btn">إكسيل 📊</button>
+      <button type="button" id="ex-pdf-all" class="main-btn">PDF 📄</button>
+    </div>
+    <div class="dialog-btns"><button type="button" id="ex-close" class="icon-btn">إغلاق</button></div>
   </dialog>
 
   <script src="app.js"></script>
