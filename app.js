@@ -5,6 +5,7 @@ let currentView = "in";
 let cashRows = [];
 let closing = { key: "closing", treasury: 0, balance: 0 };
 let restoring = false;
+let restoreIdMap = null;
 let dailyDays = [];
 let dailyViewId = null;
 let lines = [];
@@ -353,11 +354,11 @@ function viewSheetData(view) {
   } else if (view === "cash") {
     rows.push(["الخط 1", "الكاش 1", "الخط 2", "الكاش 2"]);
     for (const r of cashRows) {
-      rows.push([r.n1, typeof r.c1 === "number" ? r.c1 : "", r.n2, typeof r.c2 === "number" ? r.c2 : ""]);
+      rows.push([r.n1, cashValue(r, 1) || "", r.n2, cashValue(r, 2) || ""]);
     }
     rows.push([]);
-    rows.push(["إجمالي الكاش 1", round2(cashRows.reduce((t, r) => t + cashNum(r.c1), 0))]);
-    rows.push(["إجمالي الكاش 2", round2(cashRows.reduce((t, r) => t + cashNum(r.c2), 0))]);
+    rows.push(["إجمالي الكاش 1", round2(cashRows.reduce((t, r) => t + cashValue(r, 1), 0))]);
+    rows.push(["إجمالي الكاش 2", round2(cashRows.reduce((t, r) => t + cashValue(r, 2), 0))]);
     rows.push(["إجمالي الكاش", cashTotal()]);
   } else if (view === "daily") {
     return dailySheetRows(viewedDay());
@@ -404,8 +405,8 @@ function reportHtml(view) {
   } else if (view === "cash") {
     let rows = "";
     for (const r of cashRows) {
-      rows += "<tr>" + cell(r.n1 || "", TDB) + cell(typeof r.c1 === "number" ? r.c1 : "") +
-              cell(r.n2 || "", TDB) + cell(typeof r.c2 === "number" ? r.c2 : "") + "</tr>";
+      rows += "<tr>" + cell(r.n1 || "", TDB) + cell(cashValue(r, 1) || "") +
+              cell(r.n2 || "", TDB) + cell(cashValue(r, 2) || "") + "</tr>";
     }
     const foot = '<tr><td ' + TDB + ' colspan="3">إجمالي الكاش</td>' + cell(cashTotal(), TDB) + "</tr>";
     body = '<table style="border-collapse:collapse;width:100%;"><tr><th ' + TH + ">الخط 1</th><th " + TH + ">الكاش 1</th><th " + TH +
@@ -545,6 +546,7 @@ fileImport.addEventListener("change", (e) => {
         await new Promise(res => txc.oncomplete = res);
         cashRows = [];
         let order = 0;
+        restoreIdMap = {};
         for (const r of importedData.cash) {
           const n1 = String(r.n1 !== undefined ? r.n1 : (r.name || ""));
           const row = {
@@ -555,6 +557,7 @@ fileImport.addEventListener("change", (e) => {
             order: order++
           };
           await putStore("cash", row);
+          if (r.id !== undefined) restoreIdMap[r.id] = row.id;
           cashRows.push(row);
         }
       }
@@ -584,8 +587,9 @@ fileImport.addEventListener("change", (e) => {
         dailyViewId = currentDay().id;
       }
       if (Array.isArray(importedData.assigns)) {
-        await replaceStore("assigns", importedData.assigns);
-        assigns = importedData.assigns.slice();
+        const imp = importedData.assigns.map(a => (restoreIdMap && restoreIdMap[a.holderId] !== undefined) ? Object.assign({}, a, { holderId: restoreIdMap[a.holderId] }) : a);
+        await replaceStore("assigns", imp);
+        assigns = imp.slice();
       }
       showView(currentView);
       alert("تمت استعادة البيانات بنجاح!");
@@ -1122,12 +1126,35 @@ function cashNum(v) {
   return typeof v === "number" ? v : 0;
 }
 
+function autoCash(row, col) {
+  return round2(assigns
+    .filter(a => (a.status === "active" || a.status === "done") && a.holderId === row.id && a.holderCol === col)
+    .reduce((t, a) => t + sumAmounts(a.entries || []), 0));
+}
+
+function cashValue(row, col) {
+  return round2(autoCash(row, col) + cashNum(row["c" + col]));
+}
+
+function setCashShown(row, col, val) {
+  const auto = autoCash(row, col);
+  if (val === null) row["c" + col] = auto !== 0 ? -auto : null;
+  else row["c" + col] = auto === 0 ? val : round2(val - auto);
+}
+
 function cashTotal() {
-  return round2(cashRows.reduce((t, r) => t + cashNum(r.c1) + cashNum(r.c2), 0));
+  return round2(cashRows.reduce((t, r) => t + cashValue(r, 1) + cashValue(r, 2), 0));
 }
 
 function ledgerTotal(book) {
   return round2(data[book].reduce((t, p) => t + sum(p.ops), 0));
+}
+
+function cashCell(r, col) {
+  const auto = autoCash(r, col);
+  const manual = r["c" + col];
+  if (auto === 0 && typeof manual !== "number") return "";
+  return money(cashValue(r, col)) + (auto !== 0 ? '<small class="cauto">من الخطوط ' + money(auto) + "</small>" : "");
 }
 
 function renderCash() {
@@ -1137,9 +1164,9 @@ function renderCash() {
     const nm2 = r.n2 ? esc(r.n2) : "&nbsp;";
     html += "<tr>" +
       '<td class="cname" data-id="' + r.id + '" data-col="1">' + nm1 + "</td>" +
-      '<td class="ccash" data-id="' + r.id + '" data-col="1">' + (typeof r.c1 === "number" ? money(r.c1) : "") + "</td>" +
+      '<td class="ccash" data-id="' + r.id + '" data-col="1">' + cashCell(r, 1) + "</td>" +
       '<td class="cname" data-id="' + r.id + '" data-col="2">' + nm2 + "</td>" +
-      '<td class="ccash" data-id="' + r.id + '" data-col="2">' + (typeof r.c2 === "number" ? money(r.c2) : "") + "</td>" +
+      '<td class="ccash" data-id="' + r.id + '" data-col="2">' + cashCell(r, 2) + "</td>" +
       "</tr>";
   }
   cashBody.innerHTML = html;
@@ -1178,8 +1205,12 @@ cashBody.addEventListener("click", (e) => {
     const col = Number(c.dataset.col);
     cashEditing = { row: row, col: col };
     cashDlgTitle.textContent = "كاش " + col + " - " + ((col === 1 ? row.n1 : row.n2) || "بدون اسم");
-    const cur = row["c" + col];
-    cashInput.value = typeof cur === "number" ? cur : "";
+    const auto = autoCash(row, col);
+    const cur = cashValue(row, col);
+    cashInput.value = (auto !== 0 || typeof row["c" + col] === "number") ? cur : "";
+    const parts = assigns.filter(a => (a.status === "active" || a.status === "done") && a.holderId === row.id && a.holderCol === col)
+      .map(a => "خط " + a.lineN + " (" + money(sumAmounts(a.entries || [])) + ")");
+    document.getElementById("cash-auto-note").textContent = parts.length ? "من الخطوط: " + parts.join("، ") + " · لو عدّلت الرقم بيتحفظ الفرق كتعديل يدوي" : "";
     cashDialog.showModal();
     cashInput.focus();
     return;
@@ -1206,7 +1237,7 @@ cashForm.addEventListener("submit", async (e) => {
   const val = raw === "" ? null : Number(raw);
   if (val !== null && !Number.isFinite(val)) return;
   const old = row[key];
-  row[key] = val;
+  setCashShown(row, cashEditing.col, val);
   try {
     await putStore("cash", row);
   } catch (err) {
@@ -1461,7 +1492,7 @@ async function runSectionCommand(cmd, heard) {
   if (!confirm(head + "تسجّل كاش " + usedCol + " لـ«" + shownName + "» = " + money(cmd.amount) + "؟" + hint)) return;
   const key = "c" + usedCol;
   const old = row[key];
-  row[key] = cmd.amount;
+  setCashShown(row, usedCol, cmd.amount);
   showView("cash");
   try {
     await putStore("cash", row);
@@ -2091,13 +2122,22 @@ document.getElementById("la-cancel").addEventListener("click", () => assignDialo
 laEnd.addEventListener("click", async () => {
   if (!assignEditing || !assignEditing.a) return;
   const a = assignEditing.a;
-  if (!confirm("تقفل خطة الخط " + a.lineN + " دلوقتي؟ التحصيلات هتفضل محفوظة.")) return;
+  if (!confirm("تنهي خطة الخط " + a.lineN + "؟ مبلغه هيتشال من كاش الحامل، والتحصيلات هتفضل محفوظة في سجل الخط.")) return;
   const old = a.status;
-  a.status = "closed";
+  const hRow = cashRows.find(r => r.id === a.holderId);
+  const oldManual = hRow ? hRow["c" + a.holderCol] : null;
+  if (hRow) {
+    const shown = cashValue(hRow, a.holderCol);
+    a.status = "closed";
+    const want = Math.max(0, round2(shown - sumAmounts(a.entries || [])));
+    hRow["c" + a.holderCol] = round2(want - autoCash(hRow, a.holderCol));
+  } else a.status = "closed";
   try {
     await putStore("assigns", a);
+    if (hRow) await putStore("cash", hRow);
   } catch (e) {
     a.status = old;
+    if (hRow) hRow["c" + a.holderCol] = oldManual;
     alert("لم يتم الحفظ! حاول مرة أخرى.");
   }
   assignDialog.close();
@@ -2525,7 +2565,7 @@ function downloadBackup() {
     date: getDateString(),
     in: data.in.filter(p => p.ops.length > 0),
     out: data.out.filter(p => p.ops.length > 0),
-    cash: cashRows.map(r => ({ name: r.n1, n1: r.n1, n2: r.n2, c1: r.c1, c2: r.c2, order: r.order })),
+    cash: cashRows.map(r => ({ id: r.id, name: r.n1, n1: r.n1, n2: r.n2, c1: r.c1, c2: r.c2, order: r.order })),
     closing: { treasury: closing.treasury, balance: closing.balance },
     daily: dailyDays,
     lines: lines,
@@ -2574,3 +2614,28 @@ if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js").catch(() => {});
   });
 }
+
+// ----- الوضع الفاتح / الداكن -----
+(function () {
+  const KEY = "daftar-theme";
+  function apply(t) {
+    if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+    const dark = t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    const b = document.getElementById("btn-theme");
+    if (b) b.textContent = dark ? "☀️" : "🌙";
+    const m = document.querySelector('meta[name="theme-color"]');
+    if (m) m.content = dark ? "#0b1220" : "#0f766e";
+  }
+  let saved = null;
+  try { saved = localStorage.getItem(KEY); } catch (e) {}
+  apply(saved);
+  const b = document.getElementById("btn-theme");
+  if (b) b.addEventListener("click", () => {
+    const dark = document.documentElement.dataset.theme
+      ? document.documentElement.dataset.theme === "dark"
+      : matchMedia("(prefers-color-scheme: dark)").matches;
+    const next = dark ? "light" : "dark";
+    try { localStorage.setItem(KEY, next); } catch (e) {}
+    apply(next);
+  });
+})();

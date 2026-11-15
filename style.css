@@ -781,3 +781,22 @@ dialog select {
 .daily-wrap tfoot td {
   height: 38px;
 }
+
+/* ===== الواجهة الجديدة: فاتح / داكن ===== */
+:root{--bg:#f3f6f9;--card:#fff;--soft:#eef3f7;--line:#dbe3ea;--txt:#0f172a;--mut:#64748b;--acc:#0f766e;--accbg:#d9f3ef;--neg:#b91c1c;--negbg:#fde4e4;--warn:#fff1d6;--sh:0 2px 10px rgba(15,23,42,.07)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0b1220;--card:#111a2b;--soft:#16223a;--line:#243350;--txt:#e6edf7;--mut:#8da0bd;--acc:#2dd4bf;--accbg:#12332f;--neg:#f87171;--negbg:#3a1a1f;--warn:#3a2f12;--sh:0 2px 12px rgba(0,0,0,.4)}}
+:root[data-theme="dark"]{--bg:#0b1220;--card:#111a2b;--soft:#16223a;--line:#243350;--txt:#e6edf7;--mut:#8da0bd;--acc:#2dd4bf;--accbg:#12332f;--neg:#f87171;--negbg:#3a1a1f;--warn:#3a2f12;--sh:0 2px 12px rgba(0,0,0,.4)}
+body{background:var(--bg);color:var(--txt);font-family:"Segoe UI",Tahoma,system-ui,sans-serif}
+.top,.tabs,.tab,.table-wrap,.closing-card,.daily-bar,.lcard,.lrow,.lres,.lsum div,.hist-item,.lholder,.icon-btn,.mic-btn,.lchip,dialog,dialog select,dialog input,.daily-wrap td.dc,.daily-wrap td.dw{background:var(--card);color:var(--txt);border-color:var(--line)}
+th,th:first-child,td:first-child,.daily-wrap th.dh,.daily-wrap th.dhc,.daily-wrap tfoot td,.daily-wrap tr.dfoot2 td,.seg,#heard-text{background:var(--soft);color:var(--mut);border-color:var(--line)}
+td,.daily-wrap td{border-color:var(--line);color:var(--txt)}
+.tab.active,.lchip.ok,.lchip.done,.closing-diff.up,td.ccash:active,td.cname:active,td.op:active{background:var(--accbg);color:var(--acc)}
+body.out .tab.active,body.out .total-bar,.closing-diff.down,.lchip.overdue,.lchip.late{background:var(--negbg);color:var(--neg)}
+.total-bar,.main-btn{background:var(--acc);color:#04201d}
+.lnote.warn,.closing-diff.even{background:var(--warn);color:var(--txt)}
+.top,.tabs,.table-wrap,.lcard,.closing-card{box-shadow:var(--sh);border-radius:14px}
+.tab,.icon-btn,.main-btn,.mic-btn{border-radius:12px}
+.top h1{background:linear-gradient(90deg,var(--acc),#6366f1);-webkit-background-clip:text;background-clip:text;color:transparent}
+dialog::backdrop{background:rgba(2,6,23,.6)}
+small.cauto{display:block;font-size:11px;color:var(--acc);font-weight:400}
+.hint{font-size:13px;color:var(--mut);margin:4px 0 8px}
