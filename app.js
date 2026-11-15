@@ -2694,26 +2694,22 @@ if ("serviceWorker" in navigator) {
   });
 })();
 
-// ----- مربع التابات العائم -----
+// ----- دوك التابات العائم -----
 (function () {
-  const fab = document.getElementById("nav-fab");
   const menu = document.getElementById("tabs-menu");
-  const scrim = document.getElementById("nav-scrim");
-  if (!fab || !menu) return;
-  const tabs = Array.from(menu.querySelectorAll(".tab"));
-  tabs.forEach((t, i) => t.style.setProperty("--i", String(tabs.length - 1 - i)));
-  function sync() {
-    const act = menu.querySelector(".tab.active") || tabs[0];
-    document.getElementById("nav-fab-ic").textContent = act.dataset.ic || "";
-    document.getElementById("nav-fab-name").textContent = act.textContent.trim();
+  if (!menu) return;
+  const ind = document.createElement("span");
+  ind.className = "dock-ind";
+  ind.style.transition = "none";
+  menu.appendChild(ind);
+  function place() {
+    const act = menu.querySelector(".tab.active") || menu.querySelector(".tab");
+    if (!act) return;
+    ind.style.left = act.offsetLeft + "px";
+    ind.style.width = act.offsetWidth + "px";
   }
-  function setOpen(o) {
-    document.body.classList.toggle("nav-open", o);
-    fab.setAttribute("aria-expanded", o ? "true" : "false");
-  }
-  fab.addEventListener("click", () => setOpen(!document.body.classList.contains("nav-open")));
-  scrim.addEventListener("click", () => setOpen(false));
-  tabs.forEach(t => t.addEventListener("click", () => setOpen(false)));
-  new MutationObserver(sync).observe(menu, { attributes: true, subtree: true, attributeFilter: ["class"] });
-  sync();
+  place();
+  setTimeout(() => { place(); ind.style.transition = ""; }, 120);
+  new MutationObserver(place).observe(menu, { attributes: true, subtree: true, attributeFilter: ["class"] });
+  window.addEventListener("resize", place);
 })();
