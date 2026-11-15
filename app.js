@@ -787,6 +787,54 @@ function parseVoice(text) {
 
   return { book: book, name: name, amount: amount };
 }
+// ===== أكتر من عملية في جملة واحدة: "فرج ١٠٠ خالد ٢٠٠ محمد ٣٠٠" =====
+function splitMulti(text) {
+  const clean = text
+    .replace(/[٠-٩]/g, d => "٠١٢٣٤٥٦٧٨٩".indexOf(d))
+    .replace(/[۰-۹]/g, d => "۰۱۲۳۴۵۶۷۸۹".indexOf(d))
+    .replace(/(\d)[,،٬](?=\d{3}\b)/g, "$1")
+    .replace(/(\d)([^\d\s.])/g, "$1 $2")
+    .replace(/([^\d\s.])(\d)/g, "$1 $2");
+  const items = [];
+  for (const orig of clean.split(/\s+/).filter(Boolean)) {
+    const n = normAr(orig);
+    if (n.length > 1 && n[0] === "و" && !isDigits(n) && (isNumberToken(n.slice(1)) || isFractionToken(n.slice(1)))) {
+      items.push({ orig: "و", n: "و" });
+      items.push({ orig: orig.slice(1), n: n.slice(1) });
+    } else items.push({ orig: orig, n: n });
+  }
+  const isNum = (it) => it && (isNumberToken(it.n) || isFractionToken(it.n));
+  const segs = [];
+  let cur = [];
+  let i = 0;
+  while (i < items.length) {
+    if (isNum(items[i])) {
+      while (i < items.length && (isNum(items[i]) || (items[i].n === "و" && isNum(items[i + 1])))) { cur.push(items[i]); i++; }
+      while (i < items.length && CURRENCY_WORDS.includes(items[i].n)) { cur.push(items[i]); i++; }
+      segs.push(cur.map(it => it.orig).join(" "));
+      cur = [];
+    } else { cur.push(items[i]); i++; }
+  }
+  if (cur.length && segs.length) segs[segs.length - 1] += " " + cur.map(it => it.orig).join(" ");
+  if (segs.length < 2) return null;
+  const parsed = segs.map(t => parseVoice(t));
+  if (parsed.some(p => !p.name || !(p.amount > 0))) return null;
+  const book = (parsed.find(p => p.book) || {}).book || null;
+  return { book: book, ops: parsed.map(p => ({ name: p.name.replace(/\s+/g, " "), amount: p.amount })) };
+}
+
+async function runMulti(m, heard) {
+  const b = m.book || currentBook;
+  m.ops.forEach((o, i) => {
+    if (i > 0 && o.name.length > 3 && o.name[0] === "و" && !data[b].some(p => p.name === o.name)) o.name = o.name.slice(1);
+  });
+  const lines = m.ops.map(o => o.name + "  " + money(o.amount)).join("\n");
+  const msg = "سمعتك بتقول: " + heard + "\n\nأسجّل " + m.ops.length + " عمليات في " + (b === "in" ? "الداخل" : "الخارج") + "؟\n\n" + lines;
+  if (!confirm(msg)) return;
+  if (b !== currentBook) switchBook(b);
+  for (const o of m.ops) await addOperation(o.name, o.amount);
+}
+
 // ===== نهاية فهم الكلام =====
 
 // ===== أوامر الصوت: الحذف =====
@@ -2477,6 +2525,12 @@ if (SpeechRecognition) {
       }
     }
 
+    const multi = splitMulti(text);
+    if (multi) {
+      runMulti(multi, text);
+      return;
+    }
+
     const res = parseVoice(text);
     if (res.book && res.book !== currentBook) switchBook(res.book);
     openAddDialog(res.name, res.amount, text);
@@ -2638,4 +2692,28 @@ if ("serviceWorker" in navigator) {
     try { localStorage.setItem(KEY, next); } catch (e) {}
     apply(next);
   });
+})();
+
+// ----- مربع التابات العائم -----
+(function () {
+  const fab = document.getElementById("nav-fab");
+  const menu = document.getElementById("tabs-menu");
+  const scrim = document.getElementById("nav-scrim");
+  if (!fab || !menu) return;
+  const tabs = Array.from(menu.querySelectorAll(".tab"));
+  tabs.forEach((t, i) => t.style.setProperty("--i", String(tabs.length - 1 - i)));
+  function sync() {
+    const act = menu.querySelector(".tab.active") || tabs[0];
+    document.getElementById("nav-fab-ic").textContent = act.dataset.ic || "";
+    document.getElementById("nav-fab-name").textContent = act.textContent.trim();
+  }
+  function setOpen(o) {
+    document.body.classList.toggle("nav-open", o);
+    fab.setAttribute("aria-expanded", o ? "true" : "false");
+  }
+  fab.addEventListener("click", () => setOpen(!document.body.classList.contains("nav-open")));
+  scrim.addEventListener("click", () => setOpen(false));
+  tabs.forEach(t => t.addEventListener("click", () => setOpen(false)));
+  new MutationObserver(sync).observe(menu, { attributes: true, subtree: true, attributeFilter: ["class"] });
+  sync();
 })();

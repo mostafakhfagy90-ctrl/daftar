@@ -28,13 +28,13 @@
 
   <div id="backup-status" class="backup-status"></div>
 
-  <div class="tabs">
-    <button id="tab-in" class="tab active">الداخل</button>
-    <button id="tab-out" class="tab">الخارج</button>
-    <button id="tab-cash" class="tab">الكاش</button>
-    <button id="tab-daily" class="tab">اليومية</button>
-    <button id="tab-lines" class="tab">الخطوط</button>
-    <button id="tab-closing" class="tab">التقفيل</button>
+  <div class="tabs" id="tabs-menu">
+    <button id="tab-out" data-ic="📤" class="tab">الخارج</button>
+    <button id="tab-in" data-ic="📥" class="tab active">الداخل</button>
+    <button id="tab-cash" data-ic="💵" class="tab">الكاش</button>
+    <button id="tab-daily" data-ic="📅" class="tab">اليومية</button>
+    <button id="tab-lines" data-ic="📞" class="tab">الخطوط</button>
+    <button id="tab-closing" data-ic="✅" class="tab">التقفيل</button>
   </div>
 
   <div class="search-box">
@@ -310,5 +310,7 @@
   </dialog>
 
   <script src="app.js"></script>
+<div id="nav-scrim"></div>
+<button id="nav-fab" type="button" aria-label="التابات" aria-expanded="false"><span id="nav-fab-ic">📥</span><small id="nav-fab-name">الداخل</small></button>
 </body>
 </html>
