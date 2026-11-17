@@ -3,7 +3,7 @@ const data = { in: [], out: [] };
 let db;
 let currentView = "in";
 let cashRows = [];
-let closing = { key: "closing", treasury: 0, balance: 0 };
+let closing = { key: "closing", treasury: 0, balance: 0, prev: 0 };
 let restoring = false;
 let restoreIdMap = null;
 let dailyDays = [];
@@ -279,6 +279,21 @@ function closingFigures() {
   return { cash: cash, out: out, inn: inn, total4: total4, diff: diff };
 }
 
+function closingYomia() {
+  const f = closingFigures();
+  const prev = Number(closing.prev) || 0;
+  const yom = round2(f.diff - prev);
+  const day = (typeof currentDay === "function") ? currentDay() : null;
+  const daily = day ? dailyTotals(day).grand : 0;
+  const delta = round2(yom - daily);
+  const verdict = delta === 0 ? "اليومية مظبوطة" : (delta > 0 ? "زيادة بمبلغ" : "نقص بمبلغ");
+  return { f: f, prev: prev, yom: yom, daily: daily, delta: delta, verdict: verdict };
+}
+
+function signedMoney(n) {
+  return (n < 0 ? "−" : "") + money(Math.abs(n));
+}
+
 function diffLabel(diff) {
   return diff > 0 ? "زيادة" : (diff < 0 ? "عجز" : "متطابق");
 }
@@ -373,7 +388,12 @@ function viewSheetData(view) {
     rows.push(["الرصيد", closing.balance]);
     rows.push(["المجموع", f.total4]);
     rows.push(["إجمالي الداخل", f.inn]);
-    rows.push([diffLabel(f.diff), Math.abs(f.diff)]);
+    const y = closingYomia();
+    rows.push(["التقفيل", f.diff]);
+    rows.push(["التقفيل السابق", y.prev]);
+    rows.push(["اليومية", y.yom]);
+    rows.push(["مجموع تاب اليومية", y.daily]);
+    rows.push([y.verdict, Math.abs(y.delta)]);
   }
   return rows;
 }
@@ -455,7 +475,8 @@ function reportHtml(view) {
     body = '<table style="border-collapse:collapse;width:60%;margin:0 auto;">' +
       line("الخزنة", closing.treasury) + line("الكاش", f.cash) + line("الخارج", f.out) + line("الرصيد", closing.balance) +
       line("المجموع", f.total4, TDB) + line("إجمالي الداخل", f.inn) +
-      line(diffLabel(f.diff), Math.abs(f.diff), TDB) + "</table>";
+      line("التقفيل", f.diff, TDB) + line("التقفيل السابق", closingYomia().prev) + line("اليومية", closingYomia().yom, TDB) +
+      line("مجموع تاب اليومية", closingYomia().daily) + line(closingYomia().verdict, Math.abs(closingYomia().delta), TDB) + "</table>";
   }
 
   return '<h2 style="text-align:center;margin:0 0 4px;">' + title + "</h2>" +
@@ -565,7 +586,8 @@ fileImport.addEventListener("change", (e) => {
         closing = {
           key: "closing",
           treasury: Number(importedData.closing.treasury) || 0,
-          balance: Number(importedData.closing.balance) || 0
+          balance: Number(importedData.closing.balance) || 0,
+          prev: Number(importedData.closing.prev) || 0
         };
         await putStore("settings", closing);
       }
@@ -1161,7 +1183,7 @@ function loadSetting(key, fallback) {
 function loadClosing() {
   return new Promise((resolve, reject) => {
     const req = db.transaction("settings").objectStore("settings").get("closing");
-    req.onsuccess = () => resolve(req.result || { key: "closing", treasury: 0, balance: 0 });
+    req.onsuccess = () => resolve(req.result || { key: "closing", treasury: 0, balance: 0, prev: 0 });
     req.onerror = () => reject(req.error);
   });
 }
@@ -1360,6 +1382,7 @@ btnAdd.addEventListener("click", (e) => {
 // ----- التقفيل -----
 const cTreasury = document.getElementById("c-treasury");
 const cBalance = document.getElementById("c-balance");
+const cPrev = document.getElementById("c-prev");
 let closingTimer = null;
 
 function renderClosing(keepInputs) {
@@ -1377,9 +1400,16 @@ function renderClosing(keepInputs) {
   document.getElementById("c-out").textContent = money(out);
   document.getElementById("c-sum").textContent = money(total4);
   document.getElementById("c-in").textContent = money(inn);
-  document.getElementById("c-diff-label").textContent = diff > 0 ? "زيادة" : (diff < 0 ? "عجز" : "متطابق");
-  document.getElementById("c-diff").textContent = money(Math.abs(diff)) + " جنيه";
+  document.getElementById("c-diff-label").textContent = "التقفيل";
+  document.getElementById("c-diff").textContent = signedMoney(diff) + " جنيه";
   document.getElementById("c-diff-box").className = "closing-diff " + (diff > 0 ? "up" : (diff < 0 ? "down" : "even"));
+  if (!keepInputs) cPrev.value = closing.prev ? closing.prev : "";
+  const y = closingYomia();
+  document.getElementById("c-yom").textContent = signedMoney(y.yom);
+  document.getElementById("c-dailytab").textContent = money(y.daily);
+  document.getElementById("c-verdict-label").textContent = y.verdict;
+  document.getElementById("c-verdict-amt").textContent = y.delta === 0 ? "✓" : money(Math.abs(y.delta)) + " جنيه";
+  document.getElementById("c-verdict").className = "closing-diff " + (y.delta > 0 ? "up" : (y.delta < 0 ? "down" : "even"));
 }
 
 async function saveClosingNow() {
@@ -1395,6 +1425,7 @@ async function saveClosingNow() {
 function onClosingInput() {
   closing.treasury = Number(cTreasury.value) || 0;
   closing.balance = Number(cBalance.value) || 0;
+  closing.prev = Number(cPrev.value) || 0;
   renderClosing(true);
   clearTimeout(closingTimer);
   closingTimer = setTimeout(saveClosingNow, 400);
@@ -1402,6 +1433,8 @@ function onClosingInput() {
 
 cTreasury.addEventListener("input", onClosingInput);
 cBalance.addEventListener("input", onClosingInput);
+cPrev.addEventListener("input", onClosingInput);
+cPrev.addEventListener("change", saveClosingNow);
 cTreasury.addEventListener("change", saveClosingNow);
 cBalance.addEventListener("change", saveClosingNow);
 document.addEventListener("visibilitychange", () => {
@@ -2620,7 +2653,7 @@ function downloadBackup() {
     in: data.in.filter(p => p.ops.length > 0),
     out: data.out.filter(p => p.ops.length > 0),
     cash: cashRows.map(r => ({ id: r.id, name: r.n1, n1: r.n1, n2: r.n2, c1: r.c1, c2: r.c2, order: r.order })),
-    closing: { treasury: closing.treasury, balance: closing.balance },
+    closing: { treasury: closing.treasury, balance: closing.balance, prev: closing.prev || 0 },
     daily: dailyDays,
     lines: lines,
     assigns: assigns,
@@ -2712,4 +2745,44 @@ if ("serviceWorker" in navigator) {
   setTimeout(() => { place(); ind.style.transition = ""; }, 120);
   new MutationObserver(place).observe(menu, { attributes: true, subtree: true, attributeFilter: ["class"] });
   window.addEventListener("resize", place);
+})();
+
+// ----- تكبير وتصغير اليومية بصباعين -----
+(function () {
+  const wrap = document.querySelector(".daily-wrap");
+  const tbl = document.getElementById("daily-table");
+  if (!wrap || !tbl) return;
+  const KEY = "daftar-daily-zoom";
+  let scale = 1;
+  try { scale = Number(localStorage.getItem(KEY)) || 1; } catch (e) {}
+  const clamp = v => Math.min(2, Math.max(0.3, v));
+  function apply(v, keepPos) {
+    const mx = wrap.scrollWidth - wrap.clientWidth, my = wrap.scrollHeight - wrap.clientHeight;
+    const fx = mx > 0 ? wrap.scrollLeft / mx : 0, fy = my > 0 ? wrap.scrollTop / my : 0;
+    scale = clamp(v);
+    tbl.style.zoom = scale;
+    if (keepPos) {
+      const nx = wrap.scrollWidth - wrap.clientWidth, ny = wrap.scrollHeight - wrap.clientHeight;
+      if (nx > 0) wrap.scrollLeft = fx * nx;
+      if (ny > 0) wrap.scrollTop = fy * ny;
+    }
+  }
+  apply(scale, false);
+  let d0 = 0, s0 = 1;
+  const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  wrap.addEventListener("touchstart", e => {
+    if (e.touches.length === 2) { d0 = dist(e.touches); s0 = scale; }
+  }, { passive: true });
+  wrap.addEventListener("touchmove", e => {
+    if (e.touches.length === 2 && d0 > 0) {
+      e.preventDefault();
+      apply(s0 * dist(e.touches) / d0, true);
+    }
+  }, { passive: false });
+  wrap.addEventListener("touchend", e => {
+    if (d0 > 0 && e.touches.length < 2) {
+      d0 = 0;
+      try { localStorage.setItem(KEY, String(scale)); } catch (err) {}
+    }
+  });
 })();
