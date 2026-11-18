@@ -1446,15 +1446,6 @@ tabDaily.addEventListener("click", () => showView("daily"));
 tabLines.addEventListener("click", () => showView("lines"));
 tabClosing.addEventListener("click", () => showView("closing"));
 
-// التصدير (إكسيل / PDF) متاح في الداخل والخارج فقط
-for (const id of ["btn-export-excel", "btn-export-pdf"]) {
-  document.getElementById(id).addEventListener("click", (e) => {
-    if (isLedgerView()) return;
-    e.stopImmediatePropagation();
-    alert("التصدير متاح في تاب الداخل والخارج فقط.");
-  }, true);
-}
-
 // ----- أوامر الصوت للكاش والتقفيل -----
 const CASH_ALIASES = {
   "اس": "s", "او": "o", "اوه": "o", "ار": "r", "دي": "d", "كي": "k", "اف": "f"
