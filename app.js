@@ -400,45 +400,44 @@ function viewSheetData(view) {
 
 function reportHtml(view) {
   const title = VIEW_TITLES[view];
-  const TH = 'style="border:1px solid #999;padding:8px 10px;background:#eee;text-align:center;font-size:15px;"';
-  const TD = 'style="border:1px solid #999;padding:8px 10px;text-align:center;font-size:15px;"';
-  const TDB = 'style="border:1px solid #999;padding:8px 10px;text-align:center;font-size:16px;font-weight:bold;background:#f6f6f6;"';
-  const cell = (v, st) => "<td " + (st || TD) + ">" + (typeof v === "number" ? money(v) : esc(String(v))) + "</td>";
+  const num = (v) => (typeof v === "number" ? money(v) : esc(String(v)));
+  const td = (v, cls) => "<td" + (cls ? ' class="' + cls + '"' : "") + ">" +
+    ((v === "" || v === null || v === undefined) ? "&nbsp;" : num(v)) + "</td>";
+  const th = (v) => "<th>" + esc(String(v)) + "</th>";
   let body = "";
   let subtitle = getDateString();
 
   if (view === "in" || view === "out") {
     const book = data[view].filter(p => p.ops.length > 0);
     const maxOps = Math.max(1, ...book.map(p => p.ops.length));
-    let head = "<tr><th " + TH + ">الاسم</th>";
-    for (let i = 0; i < maxOps; i++) head += "<th " + TH + ">عملية " + (i + 1) + "</th>";
-    head += "<th " + TH + ">المجموع</th></tr>";
+    let head = "<tr>" + th("الاسم");
+    for (let i = 0; i < maxOps; i++) head += th("عملية " + (i + 1));
+    head += th("المجموع") + "</tr>";
     let rows = "";
     for (const p of book) {
-      rows += "<tr>" + cell(p.name, TDB);
-      for (let i = 0; i < maxOps; i++) rows += cell(p.ops[i] !== undefined ? p.ops[i] : "—");
-      rows += cell(sum(p.ops), TDB) + "</tr>";
+      rows += "<tr>" + td(p.name, "nm");
+      for (let i = 0; i < maxOps; i++) rows += td(p.ops[i] !== undefined ? p.ops[i] : "");
+      rows += td(sum(p.ops), "sm") + "</tr>";
     }
-    if (!book.length) rows = '<tr><td ' + TD + ' colspan="' + (maxOps + 2) + '">لا توجد عمليات</td></tr>';
-    const foot = '<tr><td ' + TDB + ' colspan="' + (maxOps + 1) + '">إجمالي ' + title + "</td>" + cell(ledgerTotal(view), TDB) + "</tr>";
-    body = '<table style="border-collapse:collapse;width:100%;">' + head + rows + foot + "</table>";
+    if (!book.length) rows = '<tr><td colspan="' + (maxOps + 2) + '">لا توجد عمليات</td></tr>';
+    const foot = '<tr class="tot"><td class="lb" colspan="' + (maxOps + 1) + '">إجمالي ' + title + "</td>" + td(ledgerTotal(view)) + "</tr>";
+    body = '<table class="rp-table">' + head + rows + foot + "</table>";
   } else if (view === "cash") {
     let rows = "";
     for (const r of cashRows) {
-      rows += "<tr>" + cell(r.n1 || "", TDB) + cell(cashValue(r, 1) || "") +
-              cell(r.n2 || "", TDB) + cell(cashValue(r, 2) || "") + "</tr>";
+      rows += "<tr>" + td(r.n1 || "", "nm") + td(cashValue(r, 1) || "") +
+              td(r.n2 || "", "nm") + td(cashValue(r, 2) || "") + "</tr>";
     }
-    const foot = '<tr><td ' + TDB + ' colspan="3">إجمالي الكاش</td>' + cell(cashTotal(), TDB) + "</tr>";
-    body = '<table style="border-collapse:collapse;width:100%;"><tr><th ' + TH + ">الخط 1</th><th " + TH + ">الكاش 1</th><th " + TH +
-           ">الخط 2</th><th " + TH + ">الكاش 2</th></tr>" + rows + foot + "</table>";
+    const t1 = round2(cashRows.reduce((t, r) => t + cashValue(r, 1), 0));
+    const t2 = round2(cashRows.reduce((t, r) => t + cashValue(r, 2), 0));
+    const foot1 = '<tr class="tot"><td class="lb">إجمالي الكاش 1</td>' + td(t1) + '<td class="lb">إجمالي الكاش 2</td>' + td(t2) + "</tr>";
+    const foot2 = '<tr class="tot"><td class="lb" colspan="3">إجمالي الكاش</td>' + td(cashTotal()) + "</tr>";
+    body = '<table class="rp-table"><tr>' + th("الخط 1") + th("الكاش 1") + th("الخط 2") + th("الكاش 2") + "</tr>" + rows + foot1 + foot2 + "</table>";
   } else if (view === "daily") {
     const day = viewedDay();
     subtitle = dateLabel(day.date);
-    const T1 = 'style="border:1px solid #999;padding:4px 3px;background:#eee;text-align:center;font-size:11px;"';
-    const T2 = 'style="border:1px solid #999;padding:4px 3px;text-align:center;font-size:12px;height:20px;"';
-    const T3 = 'style="border:1px solid #999;padding:5px 3px;text-align:center;font-size:12px;font-weight:bold;background:#f6f6f6;"';
     let head = "<tr>";
-    for (let p = 0; p < DAILY_PAIRS; p++) head += "<th " + T1 + ">سحب و إيداع</th><th " + T1 + ">عمولة</th>";
+    for (let p = 0; p < DAILY_PAIRS; p++) head += th("سحب و إيداع") + th("عمولة");
     head += "</tr>";
     const count = Math.max(20, lastUsedRow(day) + 1);
     let rows = "";
@@ -446,78 +445,225 @@ function reportHtml(view) {
       rows += "<tr>";
       for (let p = 0; p < DAILY_PAIRS; p++) {
         const c = day.cells[cellKey(p, r)];
-        rows += "<td " + T2 + ">" + (c ? money(c.w) : "") + "</td><td " + T2 + ">" + (c ? money(c.c) : "") + "</td>";
+        rows += td(c ? c.w : "") + td(c ? c.c : "", "cm");
       }
       rows += "</tr>";
     }
     const t = dailyTotals(day);
-    let f1 = "<tr>";
-    for (let p = 0; p < DAILY_PAIRS; p++) f1 += "<td " + T2 + "></td><td " + T3 + ">" + (t.used[p] ? money(t.perPair[p]) : "") + "</td>";
+    let f1 = '<tr class="tot">';
+    for (let p = 0; p < DAILY_PAIRS; p++) f1 += td("") + td(t.used[p] ? t.perPair[p] : "");
     f1 += "</tr>";
-    const f2 = '<tr><td ' + T3 + ' colspan="' + (DAILY_PAIRS * 2 - 1) + '">إجمالي كل العمولات</td><td ' + T3 + ">" + money(t.grand) + "</td></tr>";
-    body = '<table style="border-collapse:collapse;width:100%;">' + head + rows + f1 + f2 + "</table>";
+    const f2 = '<tr class="tot"><td class="lb" colspan="' + (DAILY_PAIRS * 2 - 1) + '">إجمالي كل العمولات</td>' + td(t.grand) + "</tr>";
+    body = '<table class="rp-table">' + head + rows + f1 + f2 + "</table>";
   } else if (view === "lines") {
     const data2 = linesSheetRows();
     let head = "<tr>";
-    for (const h of data2[0]) head += "<th " + TH + ">" + esc(h) + "</th>";
+    for (const h of data2[0]) head += th(h);
     head += "</tr>";
     let rows = "";
     for (const r of data2.slice(1)) {
       rows += "<tr>";
-      r.forEach((v, i) => { rows += cell(v === "" ? "—" : v, i === 0 ? TDB : TD); });
+      r.forEach((v, i) => { rows += td(v === "" ? "—" : v, i === 1 ? "nm" : ""); });
       rows += "</tr>";
     }
-    if (data2.length === 1) rows = '<tr><td ' + TD + ' colspan="9">لا توجد خطوط مخصصة</td></tr>';
-    body = '<table style="border-collapse:collapse;width:100%;">' + head + rows + "</table>";
+    if (data2.length === 1) rows = '<tr><td colspan="9">لا توجد خطوط مخصصة</td></tr>';
+    body = '<table class="rp-table">' + head + rows + "</table>";
   } else {
     const f = closingFigures();
-    const line = (label, v, st) => "<tr><td " + TDB + ">" + label + "</td>" + cell(v, st) + "</tr>";
-    body = '<table style="border-collapse:collapse;width:60%;margin:0 auto;">' +
+    const y = closingYomia();
+    const line = (label, v, cls) => '<tr class="' + (cls || "") + '"><td class="lb">' + esc(label) + "</td>" + td(v, "vl") + "</tr>";
+    const vcls = y.delta === 0 ? "tot ok" : "tot bad";
+    body = '<table class="rp-table rp-narrow">' +
       line("الخزنة", closing.treasury) + line("الكاش", f.cash) + line("الخارج", f.out) + line("الرصيد", closing.balance) +
-      line("المجموع", f.total4, TDB) + line("إجمالي الداخل", f.inn) +
-      line("التقفيل", f.diff, TDB) + line("التقفيل السابق", closingYomia().prev) + line("اليومية", closingYomia().yom, TDB) +
-      line("مجموع تاب اليومية", closingYomia().daily) + line(closingYomia().verdict, Math.abs(closingYomia().delta), TDB) + "</table>";
+      line("المجموع", f.total4, "tot") + line("إجمالي الداخل", f.inn) +
+      line("التقفيل", f.diff, "tot") + line("التقفيل السابق", y.prev) + line("اليومية", y.yom, "tot") +
+      line("مجموع تاب اليومية", y.daily) + line(y.verdict, Math.abs(y.delta), vcls) + "</table>";
   }
 
-  return '<h2 style="text-align:center;margin:0 0 4px;">' + title + "</h2>" +
-         '<p style="text-align:center;margin:0 0 14px;color:#555;">' + esc(subtitle) + "</p>" + body;
+  return '<div class="rp-head"><span class="rp-app">دفتر الحركة</span><span class="rp-title">' + esc(title) +
+         '</span><span class="rp-date">' + esc(subtitle) + "</span></div>" + body;
 }
 
-function exportExcel(views, label) {
-  if (typeof XLSX === "undefined") {
+// ---------- الإكسيل المنسّق ----------
+let styledXlsxPromise = null;
+function loadStyledXlsx() {
+  if (styledXlsxPromise) return styledXlsxPromise;
+  styledXlsxPromise = new Promise((resolve) => {
+    const orig = window.XLSX;
+    let done = false;
+    const finish = (lib) => { if (done) return; done = true; if (orig) window.XLSX = orig; resolve(lib); };
+    const sc = document.createElement("script");
+    sc.src = "https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js";
+    sc.onload = () => { const lib = window.XLSX; finish(lib && lib !== orig ? lib : null); };
+    sc.onerror = () => finish(null);
+    setTimeout(() => finish(null), 8000);
+    document.head.appendChild(sc);
+  });
+  styledXlsxPromise.then((lib) => { if (!lib) styledXlsxPromise = null; });
+  return styledXlsxPromise;
+}
+
+function buildSheet(X, view, styled) {
+  let rows = viewSheetData(view).map((r) => r.slice());
+  let subtitle = getDateString();
+  if (view === "daily") { subtitle = dateLabel(viewedDay().date); rows = rows.slice(1); }
+  const ncols = Math.max(2, ...rows.map((r) => r.length));
+  const sepIdx = rows.findIndex((r) => r.length === 0);
+  const aoa = [[VIEW_TITLES[view]], [subtitle], []];
+  const base = aoa.length;
+  const blank = new Set();
+  const origLen = [];
+  rows.forEach((r, i) => {
+    origLen.push(r.length);
+    if (r.length === 0) blank.add(base + i);
+    const row = r.slice();
+    while (row.length < ncols) row.push("");
+    aoa.push(row);
+  });
+  const closingBold = ["المجموع", "التقفيل", "اليومية"];
+  const isTot = (R) => {
+    const i = R - base;
+    if (view === "closing") return i > 0 && (closingBold.includes(String(aoa[R][0])) || i === rows.length - 1);
+    return sepIdx >= 0 && i > sepIdx;
+  };
+  const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: ncols - 1 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: ncols - 1 } }];
+  const mergedRows = new Set();
+  for (let R = base; R < aoa.length; R++) {
+    if (blank.has(R) || !isTot(R) || view === "closing") continue;
+    const row = aoa[R];
+    const i = R - base;
+    let midEmpty = true;
+    for (let c = 1; c < ncols - 1; c++) if (row[c] !== "") midEmpty = false;
+    if (origLen[i] === ncols && ncols > 2 && midEmpty && typeof row[ncols - 1] === "number" && row[0] !== "") {
+      merges.push({ s: { r: R, c: 0 }, e: { r: R, c: ncols - 2 } });
+      mergedRows.add(R);
+    }
+  }
+  const widths = new Array(ncols).fill(6);
+  for (let R = base; R < aoa.length; R++) {
+    if (blank.has(R) || mergedRows.has(R)) continue;
+    for (let c = 0; c < ncols; c++) {
+      const v = aoa[R][c];
+      const len = v === "" ? 0 : (typeof v === "number" ? money(v).length : String(v).length);
+      if (len > widths[c]) widths[c] = len;
+    }
+  }
+  const ws = X.utils.aoa_to_sheet(aoa);
+  ws["!cols"] = widths.map((w) => ({ wch: Math.min(40, Math.max(9, w + 4)) }));
+  ws["!merges"] = merges;
+  ws["!rows"] = [{ hpt: 28 }, { hpt: 18 }];
+
+  const border = { style: "thin", color: { rgb: "BFC8D6" } };
+  const allB = { top: border, bottom: border, left: border, right: border };
+  const nameCols = (view === "in" || view === "out") ? [0] : (view === "cash" ? [0, 2] : (view === "lines" ? [1] : []));
+  for (let R = 0; R < aoa.length; R++) {
+    for (let c = 0; c < ncols; c++) {
+      const ref = X.utils.encode_cell({ r: R, c: c });
+      let cell = ws[ref];
+      if (!cell) { if (R < 2 && c > 0) continue; cell = ws[ref] = { t: "s", v: "" }; }
+      if (typeof cell.v === "number") cell.z = Number.isInteger(cell.v) ? "#,##0" : "#,##0.00";
+      if (!styled) continue;
+      const center = { horizontal: "center", vertical: "center" };
+      if (R === 0) {
+        cell.s = { font: { name: "Arial", sz: 16, bold: true, color: { rgb: "1F3A5F" } }, alignment: center };
+      } else if (R === 1) {
+        cell.s = { font: { name: "Arial", sz: 11, color: { rgb: "666666" } }, alignment: center };
+      } else if (R === 2 || blank.has(R)) {
+        continue;
+      } else if (R === base) {
+        cell.s = { font: { name: "Arial", sz: 11, bold: true, color: { rgb: "FFFFFF" } },
+                   fill: { patternType: "solid", fgColor: { rgb: "1F3A5F" } }, alignment: center, border: allB };
+      } else if (isTot(R)) {
+        cell.s = { font: { name: "Arial", sz: 11, bold: true },
+                   fill: { patternType: "solid", fgColor: { rgb: "DBE7F7" } }, alignment: center, border: allB };
+      } else {
+        const zebra = ((R - base) % 2 === 0);
+        cell.s = { font: { name: "Arial", sz: 11, bold: nameCols.includes(c) },
+                   fill: zebra ? { patternType: "solid", fgColor: { rgb: "F3F6FB" } } : undefined,
+                   alignment: center, border: allB };
+      }
+    }
+  }
+  return ws;
+}
+
+async function exportExcel(views, label) {
+  let X = await loadStyledXlsx();
+  const styled = !!X;
+  if (!X) X = (typeof XLSX !== "undefined") ? XLSX : null;
+  if (!X) {
     alert("مكتبة الإكسيل لسه ما اتحمّلتش. اتأكد من الإنترنت وحدّث الصفحة.");
     return;
   }
-  const wb = XLSX.utils.book_new();
+  const wb = X.utils.book_new();
   wb.Workbook = { Views: [{ RTL: true }] };
   for (const v of views) {
-    const ws = XLSX.utils.aoa_to_sheet(viewSheetData(v));
-    XLSX.utils.book_append_sheet(wb, ws, VIEW_TITLES[v]);
+    X.utils.book_append_sheet(wb, buildSheet(X, v, styled), VIEW_TITLES[v]);
   }
-  XLSX.writeFile(wb, label + "_" + getDateString() + ".xlsx");
+  X.writeFile(wb, label + "_" + getDateString() + ".xlsx");
 }
 
+// ---------- PDF بالطباعة ----------
 function ensurePrintStyle() {
   if (document.getElementById("print-style")) return;
   const st = document.createElement("style");
   st.id = "print-style";
   st.textContent =
     "#print-area{display:none}" +
-    "@page{size:A4 landscape;margin:10mm}" +
+    "@page{size:A4 landscape;margin:8mm 8mm 11mm 8mm}" +
+    "@page{@bottom-center{content:counter(page) ' / ' counter(pages);font-size:10px;color:#555}}" +
     "@media print{" +
+      "html,body{display:block !important;position:static !important;margin:0 !important;padding:0 !important;" +
+        "min-height:0 !important;max-height:none !important;height:auto !important;overflow:visible !important;" +
+        "background:#fff !important;background-image:none !important}" +
+      "html::before,html::after,body::before,body::after{display:none !important;content:none !important}" +
       "body>*:not(#print-area){display:none !important}" +
-      "html,body{background:#fff !important;height:auto !important;overflow:visible !important}" +
-      "#print-area{display:block !important;direction:rtl;background:#fff;font-family:Tahoma,Arial,sans-serif}" +
-      "#print-area,#print-area *{color:#000 !important;-webkit-text-fill-color:#000 !important;text-shadow:none !important;opacity:1 !important;filter:none !important;background-image:none !important;box-shadow:none !important}" +
-      "#print-area .print-page{page-break-after:always;break-after:page}" +
+      "#print-area{display:block !important;position:static !important;direction:rtl;background:#fff;margin:0 !important;padding:0 !important;" +
+        "width:auto !important;min-height:0 !important;transform:none !important;zoom:1 !important;font-family:Tahoma,Arial,sans-serif;" +
+        "-webkit-print-color-adjust:exact;print-color-adjust:exact}" +
+      "#print-area,#print-area *{color:#111 !important;-webkit-text-fill-color:#111 !important;text-shadow:none !important;opacity:1 !important;" +
+        "filter:none !important;box-shadow:none !important;animation:none !important;transition:none !important}" +
+      "#print-area .print-page{page-break-after:always;break-after:page;margin:0;padding:0}" +
       "#print-area .print-page:last-child{page-break-after:auto;break-after:auto}" +
-      "#print-area table{border-collapse:collapse;width:100%;table-layout:auto}" +
-      "#print-area th,#print-area td{border:1px solid #444 !important;padding:4px 6px !important;font-size:11px !important;text-align:center}" +
-      "#print-area thead{display:table-header-group}" +
-      "#print-area tr{page-break-inside:avoid;break-inside:avoid}" +
-      "#print-area h2{font-size:18px;margin:0 0 4px}" +
+      "#print-area .rp-head{display:flex;align-items:center;justify-content:space-between;background:#1f3a5f !important;" +
+        "border-radius:6px;padding:8px 14px;margin:0 0 8px}" +
+      "#print-area .rp-head,#print-area .rp-head *{color:#fff !important;-webkit-text-fill-color:#fff !important}" +
+      "#print-area .rp-app{font-size:12px;opacity:.85}" +
+      "#print-area .rp-title{font-size:20px;font-weight:700}" +
+      "#print-area .rp-date{font-size:12px}" +
+      "#print-area .rp-table{border-collapse:collapse;width:100%;table-layout:auto;background:#fff !important;background-image:none !important}" +
+      "#print-area .rp-narrow{width:62%;margin:18px auto 0}" +
+      "#print-area .rp-table th,#print-area .rp-table td{border:1px solid #b8c2d1 !important;padding:var(--py,4px) var(--px,8px) !important;" +
+        "font-size:var(--fs,12px) !important;text-align:center;line-height:1.25;background-image:none !important}" +
+      "#print-area .rp-table th{background:#2b4c7e !important;color:#fff !important;-webkit-text-fill-color:#fff !important;font-weight:700}" +
+      "#print-area .rp-table tbody tr:nth-child(even) td{background:#f1f5fb !important}" +
+      "#print-area .rp-table td.nm{font-weight:700;text-align:right}" +
+      "#print-area .rp-table td.sm{font-weight:700}" +
+      "#print-area .rp-table td.lb{font-weight:700;text-align:right}" +
+      "#print-area .rp-table tbody tr.tot td{background:#dbe7f7 !important;font-weight:700;border-top:2px solid #2b4c7e !important}" +
+      "#print-area .rp-table tbody tr.tot.ok td{color:#0a6b2d !important;-webkit-text-fill-color:#0a6b2d !important}" +
+      "#print-area .rp-table tbody tr.tot.bad td{color:#b00020 !important;-webkit-text-fill-color:#b00020 !important}" +
+      "#print-area .rp-table thead{display:table-header-group}" +
+      "#print-area .rp-table tr{page-break-inside:avoid;break-inside:avoid}" +
     "}";
   document.head.appendChild(st);
+}
+
+function printFit(view) {
+  if (view === "closing") return { fs: 19, py: 10, px: 16 };
+  const rows = viewSheetData(view);
+  let nr = rows.length + 2;
+  if (view === "daily") nr = Math.max(20, lastUsedRow(viewedDay()) + 1) + 4;
+  const ncols = Math.max(...rows.map((r) => r.length));
+  const rowH = 620 / nr;
+  const listy = (view === "in" || view === "out" || view === "lines");
+  let fs = Math.round(rowH * 0.46);
+  fs = Math.max(listy ? 11 : 8, Math.min(view === "cash" ? 16 : 14, fs));
+  if (ncols > 12) fs = Math.min(fs, 11);
+  else if (ncols > 8) fs = Math.min(fs, 12);
+  let py = Math.round((rowH - fs * 1.35) / 2);
+  py = Math.max(2, Math.min(9, py));
+  return { fs: fs, py: py, px: ncols > 12 ? 3 : 8 };
 }
 
 function exportPdf(views, label) {
@@ -527,7 +673,10 @@ function exportPdf(views, label) {
   const area = document.createElement("div");
   area.id = "print-area";
   area.setAttribute("dir", "rtl");
-  area.innerHTML = views.map((v) => '<div class="print-page">' + reportHtml(v) + "</div>").join("");
+  area.innerHTML = views.map((v) => {
+    const f = printFit(v);
+    return '<div class="print-page" style="--fs:' + f.fs + "px;--py:" + f.py + "px;--px:" + f.px + 'px">' + reportHtml(v) + "</div>";
+  }).join("");
   // صف العناوين يتكرر في كل صفحة لو الجدول طويل
   area.querySelectorAll("table").forEach((t) => {
     const first = t.rows[0];
@@ -639,12 +788,15 @@ fileImport.addEventListener("change", (e) => {
         await replaceStore("assigns", imp);
         assigns = imp.slice();
       }
+      if (Array.isArray(importedData.oplog)) { try { writeLog(importedData.oplog); } catch (e) {} }
+      logRestoreDone();
       showView(currentView);
       alert("تمت استعادة البيانات بنجاح!");
     } catch (err) {
       alert("الملف غير صالح أو حدث خطأ أثناء الاستعادة.");
     } finally {
       restoring = false;
+      try { logSnap = logState(); } catch (e) {}
     }
   };
   reader.readAsText(file);
@@ -2629,12 +2781,15 @@ async function start() {
   render();
 }
 
-start();
+start().then(() => { try { logSnap = logState(); } catch (e) {} });
 
 // ===== النسخ الاحتياطي التلقائي =====
 const BACKUP_TIME_KEY = "daftar-last-backup";
 const BACKUP_DIRTY_KEY = "daftar-dirty";
-const BACKUP_EVERY_MIN = 60;
+
+function backupDayKey(d) {
+  return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate();
+}
 
 function backupStamp() {
   const d = new Date();
@@ -2660,11 +2815,15 @@ function updateBackupStatus() {
     });
   }
   if (dirty) msg += " (فيه تعديلات بعدها)";
+  try {
+    const sh = Number(localStorage.getItem(DRIVE_TIME_KEY) || 0);
+    if (sh) msg += " · آخر مشاركة للدرايف: " + new Date(sh).toLocaleString("ar-EG", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  } catch (e) {}
   el.textContent = msg;
 }
 
-function downloadBackup() {
-  const backup = {
+function buildBackup() {
+  return {
     app: "daftar",
     date: getDateString(),
     in: data.in.filter(p => p.ops.length > 0),
@@ -2675,9 +2834,21 @@ function downloadBackup() {
     lines: lines,
     assigns: assigns,
     dailyRule: { min: dailyRule.min, unit: dailyRule.unit, first: dailyRule.first, step: dailyRule.step },
-    lineDefaults: { target: lineDefaults.target, days: lineDefaults.days }
+    lineDefaults: { target: lineDefaults.target, days: lineDefaults.days },
+    oplog: readLog()
   };
-  const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
+}
+
+function markBackupDone() {
+  try {
+    localStorage.setItem(BACKUP_TIME_KEY, String(Date.now()));
+    localStorage.removeItem(BACKUP_DIRTY_KEY);
+  } catch (e) {}
+  updateBackupStatus();
+}
+
+function downloadBackup() {
+  const blob = new Blob([JSON.stringify(buildBackup())], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -2686,11 +2857,32 @@ function downloadBackup() {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+  markBackupDone();
+}
+
+// مشاركة النسخة (Drive وغيره) من قايمة المشاركة في الموبايل
+const DRIVE_TIME_KEY = "daftar-last-share";
+async function shareBackup() {
+  const json = JSON.stringify(buildBackup());
+  const stamp = backupStamp();
   try {
-    localStorage.setItem(BACKUP_TIME_KEY, String(Date.now()));
-    localStorage.removeItem(BACKUP_DIRTY_KEY);
-  } catch (e) {}
-  updateBackupStatus();
+    if (navigator.share && navigator.canShare) {
+      let file = new File([json], "daftar-backup-" + stamp + ".json", { type: "application/json" });
+      if (!navigator.canShare({ files: [file] })) {
+        file = new File([json], "daftar-backup-" + stamp + ".txt", { type: "text/plain" });
+      }
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: "نسخة دفتر الاحتياطية " + stamp });
+        try { localStorage.setItem(DRIVE_TIME_KEY, String(Date.now())); } catch (e) {}
+        markBackupDone();
+        return;
+      }
+    }
+  } catch (e) {
+    if (e && e.name === "AbortError") return;
+  }
+  downloadBackup();
+  alert("جهازك مش بيدعم المشاركة المباشرة، فنزّلتُ النسخة على الموبايل. افتح Drive وارفع ملف daftar-backup من التنزيلات.");
 }
 
 function autoBackupIfNeeded() {
@@ -2698,12 +2890,14 @@ function autoBackupIfNeeded() {
   try {
     if (localStorage.getItem(BACKUP_DIRTY_KEY) !== "1") return;
     const last = Number(localStorage.getItem(BACKUP_TIME_KEY) || 0);
-    if (Date.now() - last < BACKUP_EVERY_MIN * 60 * 1000) return;
+    // نسخة واحدة في اليوم: لو آخر نسخة كانت النهاردة مفيش نسخة تانية
+    if (last && backupDayKey(new Date(last)) === backupDayKey(new Date())) return;
     downloadBackup();
   } catch (e) {}
 }
 
 function markChanged() {
+  try { logChanges(); } catch (e) {}
   try { localStorage.setItem(BACKUP_DIRTY_KEY, "1"); } catch (e) {}
   updateBackupStatus();
   autoBackupIfNeeded();
@@ -2711,6 +2905,244 @@ function markChanged() {
 
 document.getElementById("btn-backup").addEventListener("click", downloadBackup);
 updateBackupStatus();
+// أول فتح للتطبيق في يوم جديد: لو فيه تعديلات من بعد آخر نسخة تتعمل نسخة
+setTimeout(autoBackupIfNeeded, 4000);
+
+// ===== سجل العمليات =====
+const OPLOG_KEY = "daftar-oplog";
+const OPLOG_MAX = 4000;
+let logSnap = null;
+
+function readLog() {
+  try {
+    const v = JSON.parse(localStorage.getItem(OPLOG_KEY) || "[]");
+    return Array.isArray(v) ? v : [];
+  } catch (e) { return []; }
+}
+
+function writeLog(list) {
+  let l = list.length > OPLOG_MAX ? list.slice(list.length - OPLOG_MAX) : list;
+  for (let i = 0; i < 4; i++) {
+    try { localStorage.setItem(OPLOG_KEY, JSON.stringify(l)); return; }
+    catch (e) { l = l.slice(Math.floor(l.length / 4)); }
+  }
+}
+
+function logState() {
+  const S = { ledger: {}, cash: {}, closing: null, daily: {}, lines: {}, assigns: {} };
+  for (const b of ["in", "out"]) {
+    for (const p of data[b]) S.ledger[b + "|" + p.id] = { b: b, name: p.name, ops: (p.ops || []).slice() };
+  }
+  for (const r of cashRows) S.cash[r.id] = { n1: r.n1 || "", n2: r.n2 || "", v1: cashValue(r, 1), v2: cashValue(r, 2) };
+  S.closing = { treasury: closing.treasury, balance: closing.balance, prev: closing.prev || 0 };
+  for (const d of dailyDays) S.daily[d.id] = { date: d.date, cells: JSON.parse(JSON.stringify(d.cells || {})) };
+  for (const l of lines) S.lines[l.n] = { name: l.name, phone: l.phone };
+  for (const a of assigns) {
+    const key = a.id !== undefined ? a.id : ("n" + a.lineN + "_" + a.startDay);
+    S.assigns[key] = {
+      lineN: a.lineN, status: a.status, target: a.target,
+      holder: holderLabel(a),
+      entries: (a.entries || []).map(e => ({ ts: e.ts, amount: e.amount, note: e.note || "" }))
+    };
+  }
+  return S;
+}
+
+function multisetDiff(a, b) {
+  const rest = b.slice();
+  const out = [];
+  for (const x of a) {
+    const i = rest.indexOf(x);
+    if (i >= 0) rest.splice(i, 1); else out.push(x);
+  }
+  return out;
+}
+
+function diffLog(o, n) {
+  const out = [];
+  const add = (view, msg) => out.push({ v: view, m: msg });
+  // الداخل والخارج
+  for (const k of Object.keys(n.ledger)) {
+    const cur = n.ledger[k], prev = o.ledger[k], title = VIEW_TITLES[cur.b];
+    if (!prev) {
+      if (!cur.ops.length) add(cur.b, "إضافة اسم جديد: " + cur.name);
+      for (const x of cur.ops) add(cur.b, "إضافة عملية " + money(x) + " على " + cur.name + " (اسم جديد)");
+      continue;
+    }
+    if (prev.name !== cur.name) add(cur.b, "تعديل اسم: " + prev.name + " ← " + cur.name);
+    const pa = prev.ops, ca = cur.ops;
+    if (pa.length === ca.length) {
+      for (let i = 0; i < ca.length; i++) if (pa[i] !== ca[i]) add(cur.b, "تعديل عملية على " + cur.name + ": " + money(pa[i]) + " ← " + money(ca[i]));
+    } else {
+      const removed = multisetDiff(pa, ca), added = multisetDiff(ca, pa);
+      for (const x of removed) add(cur.b, "حذف عملية " + money(x) + " من " + cur.name);
+      for (const x of added) add(cur.b, "إضافة عملية " + money(x) + " على " + cur.name);
+    }
+  }
+  for (const k of Object.keys(o.ledger)) {
+    if (!n.ledger[k]) {
+      const prev = o.ledger[k];
+      add(prev.b, "حذف اسم: " + prev.name + (prev.ops.length ? " (إجمالي " + money(sum(prev.ops)) + ")" : ""));
+    }
+  }
+  // الكاش
+  for (const k of Object.keys(n.cash)) {
+    const cur = n.cash[k], prev = o.cash[k];
+    if (!prev) { add("cash", "إضافة صف في الكاش: " + (cur.n1 || cur.n2 || "(فاضي)")); continue; }
+    for (const col of [1, 2]) {
+      const nm = cur["n" + col] || prev["n" + col] || "(فاضي)";
+      if (prev["n" + col] !== cur["n" + col]) add("cash", "تعديل اسم الخط " + col + ": " + (prev["n" + col] || "(فاضي)") + " ← " + (cur["n" + col] || "(فاضي)"));
+      if (prev["v" + col] !== cur["v" + col]) add("cash", "كاش " + nm + " " + col + ": " + money(prev["v" + col]) + " ← " + money(cur["v" + col]));
+    }
+  }
+  for (const k of Object.keys(o.cash)) if (!n.cash[k]) add("cash", "حذف صف من الكاش: " + (o.cash[k].n1 || o.cash[k].n2 || "(فاضي)"));
+  // التقفيل
+  const labels = { treasury: "الخزنة", balance: "الرصيد", prev: "التقفيل السابق" };
+  for (const f of ["treasury", "balance", "prev"]) {
+    if (o.closing && o.closing[f] !== n.closing[f]) add("closing", labels[f] + ": " + money(o.closing[f]) + " ← " + money(n.closing[f]));
+  }
+  // اليومية
+  for (const id of Object.keys(n.daily)) {
+    const cur = n.daily[id], prev = o.daily[id];
+    if (!prev) { add("daily", "يوم جديد في اليومية: " + cur.date); continue; }
+    const keys = new Set(Object.keys(cur.cells).concat(Object.keys(prev.cells)));
+    for (const key of keys) {
+      const c = cur.cells[key], p = prev.cells[key];
+      const parts = String(key).split(/[_:|,-]/);
+      const where = parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1]) ? " (عمود " + (Number(parts[0]) + 1) + "، صف " + (Number(parts[1]) + 1) + ")" : "";
+      if (c && !p) add("daily", "اليومية: إضافة " + money(c.w) + " بعمولة " + money(c.c) + where);
+      else if (!c && p) add("daily", "اليومية: حذف " + money(p.w) + where);
+      else if (c && p && (c.w !== p.w || c.c !== p.c)) add("daily", "اليومية: تعديل " + money(p.w) + " ← " + money(c.w) + "، العمولة " + money(p.c) + " ← " + money(c.c) + where);
+    }
+  }
+  // الخطوط
+  for (const k of Object.keys(n.lines)) {
+    const cur = n.lines[k], prev = o.lines[k];
+    if (!prev) add("lines", "إضافة خط " + k + ": " + cur.name);
+    else if (prev.name !== cur.name || prev.phone !== cur.phone) add("lines", "تعديل بيانات خط " + k + ": " + prev.name + " ← " + cur.name);
+  }
+  for (const k of Object.keys(o.lines)) if (!n.lines[k]) add("lines", "حذف خط " + k + ": " + o.lines[k].name);
+  for (const k of Object.keys(n.assigns)) {
+    const cur = n.assigns[k], prev = o.assigns[k];
+    const ln = "خط " + cur.lineN;
+    if (!prev) { add("lines", ln + " اتخصص على " + cur.holder + " (مستهدف " + money(cur.target) + ")"); continue; }
+    if (prev.holder !== cur.holder) add("lines", ln + " اتنقل من " + prev.holder + " إلى " + cur.holder);
+    if (prev.status !== cur.status && cur.status === "closed") add("lines", "إنهاء خطة " + ln);
+    else if (prev.status !== cur.status) add("lines", ln + ": الحالة " + prev.status + " ← " + cur.status);
+    const pe = {}; prev.entries.forEach(e => { pe[e.ts] = e; });
+    const ce = {}; cur.entries.forEach(e => { ce[e.ts] = e; });
+    for (const e of cur.entries) {
+      if (!pe[e.ts]) add("lines", "تحصيل على " + ln + ": " + money(e.amount) + (e.note ? " (" + e.note + ")" : ""));
+      else if (pe[e.ts].amount !== e.amount) add("lines", "تعديل تحصيل على " + ln + ": " + money(pe[e.ts].amount) + " ← " + money(e.amount));
+    }
+    for (const e of prev.entries) if (!ce[e.ts]) add("lines", "حذف تحصيل " + money(e.amount) + " من " + ln);
+  }
+  for (const k of Object.keys(o.assigns)) if (!n.assigns[k]) add("lines", "حذف تخصيص " + "خط " + o.assigns[k].lineN);
+  return out;
+}
+
+function logChanges() {
+  if (restoring) return;
+  const cur = logState();
+  if (!logSnap) { logSnap = cur; return; }
+  let entries = diffLog(logSnap, cur);
+  logSnap = cur;
+  if (!entries.length) return;
+  const t = Date.now();
+  if (entries.length > 40) entries = [{ v: "all", m: "تغيير كبير دفعة واحدة (" + entries.length + " تعديل) - غالبا استعادة أو استيراد" }];
+  const list = readLog();
+  for (const e of entries) list.push({ t: t, v: e.v, m: e.m });
+  writeLog(list);
+}
+
+function logRestoreDone() {
+  try {
+    logSnap = logState();
+    const list = readLog();
+    list.push({ t: Date.now(), v: "all", m: "استعادة نسخة احتياطية" });
+    writeLog(list);
+  } catch (e) {}
+}
+
+// نافذة السجل (بتتبني من الكود)
+let logDlg = null;
+function openLogDialog() {
+  if (!logDlg) {
+    logDlg = document.createElement("dialog");
+    logDlg.id = "oplog-dialog";
+    logDlg.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">' +
+        '<strong style="font-size:18px">🕘 سجل العمليات</strong>' +
+        '<button type="button" id="oplog-close" style="font-size:18px;padding:2px 10px">✕</button></div>' +
+      '<input id="oplog-search" type="search" placeholder="ابحث بالاسم أو المبلغ أو القسم" style="width:100%;box-sizing:border-box;padding:8px;font-size:16px;margin-bottom:8px">' +
+      '<div id="oplog-list" style="overflow:auto;max-height:62vh"></div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;gap:8px">' +
+        '<small id="oplog-count"></small>' +
+        '<button type="button" id="oplog-clear" style="padding:6px 10px">مسح السجل</button></div>';
+    document.body.appendChild(logDlg);
+    const dark = (() => {
+      const c = (getComputedStyle(document.body).color.match(/\d+/g) || [0, 0, 0]).map(Number);
+      return (c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11) > 140;
+    })();
+    logDlg.style.cssText = "width:min(94vw,560px);max-height:88vh;border-radius:14px;padding:14px;border:1px solid #8884;direction:rtl;" +
+      (dark ? "background:#161b26;color:#e8ecf4" : "background:#fff;color:#111");
+    logDlg.querySelector("#oplog-close").addEventListener("click", () => logDlg.close());
+    logDlg.querySelector("#oplog-search").addEventListener("input", renderLogList);
+    logDlg.querySelector("#oplog-clear").addEventListener("click", () => {
+      if (!confirm("تمسح كل سجل العمليات؟ ده مش بيمسح بياناتك، السجل بس.")) return;
+      writeLog([]);
+      renderLogList();
+    });
+  }
+  logDlg.querySelector("#oplog-search").value = "";
+  renderLogList();
+  logDlg.showModal();
+}
+
+function renderLogList() {
+  const q = normAr(logDlg.querySelector("#oplog-search").value || "");
+  const all = readLog().slice().reverse();
+  const hit = q ? all.filter(e => normAr((VIEW_TITLES[e.v] || "") + " " + e.m).includes(q)) : all;
+  const shown = hit.slice(0, 300);
+  let html = "", lastDay = "";
+  for (const e of shown) {
+    const d = new Date(e.t);
+    const dayTxt = d.toLocaleDateString("ar-EG", { weekday: "long", day: "numeric", month: "long" });
+    if (dayTxt !== lastDay) {
+      html += '<div style="margin:10px 0 4px;font-weight:700;opacity:.8">' + esc(dayTxt) + "</div>";
+      lastDay = dayTxt;
+    }
+    const tm = d.toLocaleTimeString("ar-EG", { hour: "numeric", minute: "2-digit" });
+    const sec = VIEW_TITLES[e.v] ? '<span style="font-size:12px;border:1px solid #8886;border-radius:8px;padding:0 6px;margin-inline-start:6px">' + esc(VIEW_TITLES[e.v]) + "</span>" : "";
+    html += '<div style="padding:6px 0;border-bottom:1px solid #8883;font-size:15px"><span style="opacity:.7;font-size:13px">' + esc(tm) + "</span>" + sec +
+            '<div style="margin-top:2px">' + esc(e.m) + "</div></div>";
+  }
+  if (!shown.length) html = '<div style="padding:18px;text-align:center;opacity:.7">لا توجد عمليات مسجلة' + (q ? " بالبحث ده" : " لسه") + "</div>";
+  logDlg.querySelector("#oplog-list").innerHTML = html;
+  logDlg.querySelector("#oplog-count").textContent = hit.length + " عملية" + (hit.length > shown.length ? " (بيظهر آخر 300)" : "");
+}
+
+// زرارين جداد جنب زرار النسخة الاحتياطية
+(function addExtraButtons() {
+  const ref = document.getElementById("btn-backup");
+  if (!ref) return;
+  const mk = (id, txt, fn) => {
+    const b = document.createElement("button");
+    b.id = id;
+    b.type = "button";
+    b.className = ref.className;
+    b.textContent = txt;
+    b.addEventListener("click", fn);
+    return b;
+  };
+  const logBtn = mk("btn-oplog", "🕘 السجل", openLogDialog);
+  const shareBtn = mk("btn-share-backup", "☁️ درايف", shareBackup);
+  ref.insertAdjacentElement("afterend", shareBtn);
+  shareBtn.insertAdjacentElement("afterend", logBtn);
+  // ملف الاستعادة يقبل أي امتداد (json أو txt)
+  const fi = document.getElementById("file-import");
+  if (fi) fi.removeAttribute("accept");
+})();
 // ===== نهاية النسخ الاحتياطي التلقائي =====
 
 if ("serviceWorker" in navigator) {
