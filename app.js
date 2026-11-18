@@ -502,23 +502,36 @@ function exportPdf(views, label) {
     alert("مكتبة الـ PDF لسه ما اتحمّلتش. اتأكد من الإنترنت وحدّث الصفحة.");
     return;
   }
+  // طبقة بيضا مؤقتة بتغطي الشاشة، والجدول بيتصوّر وهو ظاهر جواها (الرسم بره الشاشة كان بيطلّع PDF فاضي)
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;left:0;top:0;right:0;bottom:0;z-index:99999;background:#fff;overflow:auto;";
+  const msg = document.createElement("div");
+  msg.textContent = "جاري تجهيز ملف الـ PDF...";
+  msg.setAttribute("dir", "rtl");
+  msg.style.cssText = "position:sticky;top:0;z-index:2;background:#1b6b34;color:#fff;text-align:center;padding:10px;font-family:Tahoma,Arial,sans-serif;font-size:15px;";
   const wrap = document.createElement("div");
   wrap.setAttribute("dir", "rtl");
-  wrap.style.cssText = "position:fixed;left:-10000px;top:0;width:1000px;background:#fff;color:#000;padding:20px;font-family:Tahoma,Arial,sans-serif;";
+  wrap.style.cssText = "position:relative;width:1000px;background:#fff;color:#000;padding:20px;font-family:Tahoma,Arial,sans-serif;";
   wrap.innerHTML = views.map(reportHtml).join('<div class="html2pdf__page-break"></div>');
-  document.body.appendChild(wrap);
+  overlay.appendChild(msg);
+  overlay.appendChild(wrap);
+  document.body.appendChild(overlay);
+  const cleanup = () => { if (overlay.parentNode) overlay.remove(); };
   const opt = {
     margin: 10,
     filename: label + "_" + getDateString() + ".pdf",
     image: { type: "jpeg", quality: 0.98 },
-    html2canvas: { scale: 2 },
+    html2canvas: { scale: 2, scrollX: 0, scrollY: 0, windowWidth: 1040, backgroundColor: "#ffffff", useCORS: true },
     jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
     pagebreak: { mode: ["css", "legacy"] }
   };
-  html2pdf().from(wrap).set(opt).save()
-    .then(() => wrap.remove())
+  const fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+  fontsReady
+    .then(() => new Promise((r) => setTimeout(r, 400)))
+    .then(() => html2pdf().from(wrap).set(opt).save())
+    .then(cleanup)
     .catch(() => {
-      wrap.remove();
+      cleanup();
       alert("تعذر إنشاء ملف الـ PDF.");
     });
 }

@@ -1,5 +1,5 @@
-// دفتر - Service Worker (نسخة v18)
-const CACHE = "daftar-v18";
+// دفتر - Service Worker (نسخة v19)
+const CACHE = "daftar-v19";
 const SHELL = [
   "./",
   "index.html",
